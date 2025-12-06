@@ -48,6 +48,7 @@ class SO100Follower(Robot):
         norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
         self.bus = FeetechMotorsBus(
             port=self.config.port,
+            # i.e. joint names of so100
             motors={
                 "shoulder_pan": Motor(1, "sts3215", norm_mode_body),
                 "shoulder_lift": Motor(2, "sts3215", norm_mode_body),
@@ -176,9 +177,11 @@ class SO100Follower(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        # Read arm position
+        # Read arm position (TODO: joint state??)
         start = time.perf_counter()
         obs_dict = self.bus.sync_read("Present_Position")
+        # obs_dict: {"<joint_name>.pos": joint_value}
+        # for joint_name values, search for: motors={ in this file
         obs_dict = {f"{motor}.pos": val for motor, val in obs_dict.items()}
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read state: {dt_ms:.1f}ms")
@@ -186,9 +189,26 @@ class SO100Follower(Robot):
         # Capture images from cameras
         for cam_key, cam in self.cameras.items():
             start = time.perf_counter()
+            # obs_dict plus cameras info:
+            # obs_dict: {"camera1": joint_value}
+            # the return of cam.async_read() is the webcam image which is cvt to:
+            # requested color_mode (cv2.RGB, if not specified in CameraConfig), 
+            # rotation (no rotation if not specified in CameraConfig)
+            # with shape h, w, c (search for "h, w, c = image.shape" in camera_opencv.py)
             obs_dict[cam_key] = cam.async_read()
             dt_ms = (time.perf_counter() - start) * 1e3
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
+
+        # the content structure of obs_dict
+        # dict(
+        #   "shoulder_pan.pos": joint_value,
+        #   "shoulder_lift.pos": joint_value,
+        #   "elbow_flex.pos": joint_value,
+        #   "wrist_flex.pos": joint_value,
+        #   "wrist_roll.pos": joint_value,
+        #   "gripper.pos": joint_value,
+        #   "camera1": image with shape h, w, c,
+        # )
 
         return obs_dict
 

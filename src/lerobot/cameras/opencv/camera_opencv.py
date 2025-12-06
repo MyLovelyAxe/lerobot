@@ -406,7 +406,7 @@ class OpenCVCamera(Camera):
                 f"Invalid color mode '{requested_color_mode}'. Expected {ColorMode.RGB} or {ColorMode.BGR}."
             )
 
-        h, w, c = image.shape
+        h, w, c = image.shape # TODO: the image from zmq socket should have this shape
 
         if h != self.capture_height or w != self.capture_width:
             raise RuntimeError(

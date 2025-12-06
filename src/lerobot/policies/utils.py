@@ -165,9 +165,49 @@ def build_inference_frame(
         A dictionary of preprocessed tensors ready for model inference.
     """
     # Extracts the correct keys from the incoming raw observation
+    
+    # inputs:
+    # ds_features = dict(
+    #   'action': dict(
+    #       'dtype': 'float32',
+    #       'shape': (6,), # this is a tuple
+    #       'names': ['shoulder_pan.pos', 'shoulder_lift.pos', 'elbow_flex.pos', 'wrist_flex.pos', 'wrist_roll.pos', 'gripper.pos']
+    #       ),
+    #   'observation.state': dict( # same with action_features['action'] above
+    #       'dtype': 'float32',
+    #       'shape': (6,), # this is a tuple
+    #       'names': ['shoulder_pan.pos', 'shoulder_lift.pos', 'elbow_flex.pos', 'wrist_flex.pos', 'wrist_roll.pos', 'gripper.pos']
+    #       ),
+    #   'observation.images.camera1': dict(
+    #       'dtype': 'video',
+    #       'shape': (480, 640, 3),
+    #       'names': ['height', 'width', 'channels'],
+    #       ),
+    # )
+    # observation = dict(
+    #   "shoulder_pan.pos": joint_value,
+    #   "shoulder_lift.pos": joint_value,
+    #   "elbow_flex.pos": joint_value,
+    #   "wrist_flex.pos": joint_value,
+    #   "wrist_roll.pos": joint_value,
+    #   "gripper.pos": joint_value,
+    #   "camera1": image with shape h, w, c,
+    # )
+    # output:
+    # observation = dict(
+    #   "observation.state": np.array with shape (6,), # joint values concatenated
+    #   "observation.images.camera1": np.array of image with shape h, w, c,
+    # )
     observation = build_dataset_frame(ds_features, observation, prefix=OBS_STR)
 
     # Performs the necessary conversions to the observation
+    # output:
+    # observation = dict(
+    #   "observation.state": torch.Tensor with shape [1, 6]
+    #   "observation.images.camera1": torch.Tensor of image batch with shape [1, c, h, w]
+    #   "task": task string same as input,
+    #   "robot_type": robot_type string same as input,
+    # )
     observation = prepare_observation_for_inference(observation, device, task, robot_type)
 
     return observation
