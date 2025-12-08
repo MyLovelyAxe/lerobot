@@ -158,6 +158,8 @@ def main():
             action = model.select_action(obs)
             action = postprocess(action)
             action = make_robot_action(action, dataset_features)
+            # TODO: replace robot.send_action() with:
+            #   - publish to a zmq socket (ros2 topic /joint_command from Isaa Sim, give target state)
             robot.send_action(action) # TODO: unnecessary
 
         print("Episode finished! Starting new episode...")
