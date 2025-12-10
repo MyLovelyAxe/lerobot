@@ -344,6 +344,7 @@ class SmolVLAPolicy(PreTrainedPolicy):
             # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
             self._queues[ACTION].extend(actions.transpose(0, 1)[: self.config.n_action_steps])
 
+        # TODO:there are 50 actions predicted every time, but only returns the first one, check if this can improve anything
         return self._queues[ACTION].popleft()
 
     def _check_get_actions_condition(self) -> bool:

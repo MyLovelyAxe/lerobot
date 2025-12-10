@@ -68,8 +68,7 @@ OBS_FEATURES = {
         ],
     },
     'observation.images.camera1': {
-        # 'dtype': 'video',
-        'dtype': 'image',
+        'dtype': 'video',
         'shape': (480, 640, 3),
         'names': [
             'height', 
@@ -77,15 +76,15 @@ OBS_FEATURES = {
             'channels',
         ],
     },
-    # 'observation.images.camera2': {
-    #     'dtype': 'video',
-    #     'shape': (480, 640, 3),
-    #     'names': [
-    #         'height', 
-    #         'width', 
-    #         'channels',
-    #     ],
-    # },
+    'observation.images.camera2': {
+        'dtype': 'video',
+        'shape': (480, 640, 3),
+        'names': [
+            'height', 
+            'width', 
+            'channels',
+        ],
+    },
 }
 
 DATASET_FEATURES = {**ACTION_FEATURES, **OBS_FEATURES}
@@ -142,6 +141,7 @@ if __name__ == "__main__":
     for _ in range(MAX_EPISODES):
         # for _ in range(MAX_STEPS_PER_EPISODE):
 
+        count = 0
         while True:
 
             payload = obs_socket.recv()   # one npz blob
@@ -151,19 +151,29 @@ if __name__ == "__main__":
             ts = float(data["ts"][0])
             joints = data["joints"].astype(np.float32)
 
+            # image 1: from topic /camera1_rgb
             img1_vec = data["img1"]
             encoded_flag = int(data.get("img1_encoded", np.array([1]))[0])
-
+            # convert JPEG bytes to numpy image
             if encoded_flag == 1:
-                # JPEG bytes → numpy image
                 buf1 = np.frombuffer(img1_vec.tobytes(), dtype=np.uint8)
                 img1 = cv2.imdecode(buf1, cv2.IMREAD_COLOR)
-                # TODO: check RGB or BGR
             else:
-                # raw image case (if you choose to send raw)
-                # you'd need to know H, W, C to reshape
                 img1 = img1_vec.reshape((480, 640, 3))
+            # convert img into RGB
+            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
 
+            # image 2: from topic /camera2_rgb
+            img2_vec = data["img2"]
+            encoded_flag = int(data.get("img2_encoded", np.array([1]))[0])
+            # convert JPEG bytes to numpy image
+            if encoded_flag == 1:
+                buf2 = np.frombuffer(img2_vec.tobytes(), dtype=np.uint8)
+                img2 = cv2.imdecode(buf2, cv2.IMREAD_COLOR)
+            else:
+                img2 = img2_vec.reshape((480, 640, 3))
+            # convert img into RGB
+            img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
 
             # obs is dict, which:
             # dict(
@@ -174,10 +184,8 @@ if __name__ == "__main__":
             #   "wrist_roll.pos": joint_value,
             #   "gripper.pos": joint_value,
             #   "camera1": cv2.RGB image with shape h, w, c, no rotation
+            #   "camera2": cv2.RGB image with shape h, w, c, no rotation
             # )
-
-            # convert img into RGB
-            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
 
             obs = {
                 "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos"),
@@ -187,16 +195,9 @@ if __name__ == "__main__":
                 "wrist_roll.pos": rad2pos(rad=joints[4], joint_name="wrist_roll.pos"),
                 "gripper.pos": rad2pos(rad=joints[5], joint_name="gripper.pos"),
                 "camera1": img1,
+                "camera2": img2,
             }
 
-            # the above "camera1" image should be processed similarly with:
-            #   self.videocapture = cv2.VideoCapture()
-            #   ret, frame = self.videocapture.read()
-            #   processed_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # TODO: replace this get_obserrobot.get_observation()vation with:
-            #   - subscribe to a zmq socket (ros2 topic /joint_states)
-            #   - subscribe to a zmq socket (ros2 topic /camera1_rgb)
-            #   - construct the subscribed info into the above dict structure
             # TODO: check if 2 cameras is the upper limit
             # TODO: check what viewpoint angle and distance to robot (i.e. pose) should the camera have
 
@@ -228,15 +229,12 @@ if __name__ == "__main__":
             #     'gripper.pos': abs_target_value, 
             # }
             action = make_robot_action(action, DATASET_FEATURES)
-            # TODO: replace robot.send_action() with:
-            #   - publish to a zmq socket (ros2 topic /joint_command from Isaa Sim, give target state)
-            print(f"returned action: {action}")
 
-
-            # action_array = np.array(
-            #     [action[name] for name in JOINT_ORDER],
-            #     dtype=np.float32
-            # )
+            if count % 10 == 0:
+                formatted_action = [
+                    f"{action[name]:.3f}" for name in JOINT_ORDER if name in action
+                ]
+                print(f"returned target states: [{', '.join(formatted_action)}]")
 
             action_array = np.array([
                 pos2rad(pos=action["shoulder_pan.pos"], joint_name="shoulder_pan.pos"),
@@ -250,5 +248,10 @@ if __name__ == "__main__":
             # In PUB/SUB without topics, just send raw bytes.
             # (If you later want topics, you can use send_multipart([topic, payload]))
             act_socket.send(action_array.tobytes())
+
+            # TODO: the action values seem still have changes in the stuck position, 
+            # check if it is because the actions are published too fast, and the robot
+            # doesn't have enough time to finish?
+            count += 1
 
         print("Episode finished! Starting new episode...")
