@@ -1,9 +1,12 @@
 import zmq
+import os
 import numpy as np
 import io
 import cv2
 import torch
 import time
+from PIL import Image
+from pathlib import Path
 
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
@@ -25,6 +28,7 @@ time.sleep(0.5)
 
 MAX_EPISODES = 5
 MAX_STEPS_PER_EPISODE = 20
+IMAGES_STORE_PATH = Path("logs")
 
 JOINT_ORDER = [
     'shoulder_pan.pos',
@@ -128,9 +132,17 @@ if __name__ == "__main__":
     model_id = "lerobot/smolvla_base"
     model = SmolVLAPolicy.from_pretrained(model_id)
 
+    # test other configs
+    # model.config.n_action_steps = 5
+
+    camera_feature_keys = list(model.config.image_features)
+    max_supported_cameras = len(camera_feature_keys)
+    if max_supported_cameras == 0:
+        raise ValueError(f"Policy {model_id} exposes no camera inputs.")
+
     preprocess, postprocess = make_pre_post_processors(
-        model.config,
-        model_id,
+        policy_cfg=model.config,
+        pretrained_path=model_id,
         preprocessor_overrides={"device_processor": {"device": str(device)}},
     )
 
@@ -198,7 +210,19 @@ if __name__ == "__main__":
                 "camera2": img2,
             }
 
-            # TODO: check if 2 cameras is the upper limit
+            if count % 10 == 0:
+                cvt_pos = list()
+                for joint_name in JOINT_ORDER:
+                    cvt_pos.append(obs[joint_name])
+                print(f"radian joint state converted into motor pos: {cvt_pos}")
+
+            if count == 0:
+                camera_count = sum(key.startswith("camera") for key in obs)
+                if camera_count > max_supported_cameras:
+                    raise ValueError(
+                        f"Received {camera_count} camera feeds but policy supports up to "
+                        f"{max_supported_cameras}: {camera_feature_keys}"
+                    )
             # TODO: check what viewpoint angle and distance to robot (i.e. pose) should the camera have
 
             # obs_frame = dict(
@@ -217,6 +241,21 @@ if __name__ == "__main__":
 
             obs = preprocess(obs_frame)
 
+            os.makedirs(IMAGES_STORE_PATH, exist_ok=True)
+
+            # save images in obs
+            if count % 10 == 0:
+                # cam1
+                cam1_img = obs['observation.images.camera1'].cpu().detach().numpy().squeeze().reshape(480, 640, 3)
+                cam1_img_uint8 = (cam1_img * 255).astype(np.uint8)
+                cam1_img_uint8_save = Image.fromarray(cam1_img_uint8)  # expects RGB order
+                cam1_img_uint8_save.save(IMAGES_STORE_PATH / f"obs_cam1_{count}.png")
+                # cam2
+                cam2_img = obs['observation.images.camera2'].cpu().detach().numpy().squeeze().reshape(480, 640, 3)
+                cam2_img_uint8 = (cam2_img * 255).astype(np.uint8)
+                cam2_img_uint8_save = Image.fromarray(cam2_img_uint8)  # expects RGB order
+                cam2_img_uint8_save.save(IMAGES_STORE_PATH / f"obs_cam2_{count}.png")
+
             action = model.select_action(obs)
             action = postprocess(action)
 
@@ -230,12 +269,6 @@ if __name__ == "__main__":
             # }
             action = make_robot_action(action, DATASET_FEATURES)
 
-            if count % 10 == 0:
-                formatted_action = [
-                    f"{action[name]:.3f}" for name in JOINT_ORDER if name in action
-                ]
-                print(f"returned target states: [{', '.join(formatted_action)}]")
-
             action_array = np.array([
                 pos2rad(pos=action["shoulder_pan.pos"], joint_name="shoulder_pan.pos"),
                 pos2rad(pos=action["shoulder_lift.pos"], joint_name="shoulder_lift.pos"),
@@ -244,6 +277,13 @@ if __name__ == "__main__":
                 pos2rad(pos=action["wrist_roll.pos"], joint_name="wrist_roll.pos"),
                 pos2rad(pos=action["gripper.pos"], joint_name="gripper.pos"),
             ],dtype=np.float32)
+
+            if count % 10 == 0:
+                formatted_action = [
+                    f"{action[name]:.3f}" for name in JOINT_ORDER if name in action
+                ]
+                print(f"direct returned target states: [{', '.join(formatted_action)}]")
+                print(f"converted target states: [{action_array.tolist()}]")
 
             # In PUB/SUB without topics, just send raw bytes.
             # (If you later want topics, you can use send_multipart([topic, payload]))

@@ -348,6 +348,7 @@ class SmolVLAPolicy(PreTrainedPolicy):
         return self._queues[ACTION].popleft()
 
     def _check_get_actions_condition(self) -> bool:
+        print(f'Length of current self._queues: {len(self._queues[ACTION])}')
         return len(self._queues[ACTION]) == 0
 
     def _rtc_enabled(self) -> bool:

@@ -20,7 +20,6 @@ This package is tested on the following environment configuration:
 - RTX3080Ti with driver 575.57.08
 - CUDA version 12.9
 
-
 ---
 
 ## Installation

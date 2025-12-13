@@ -303,7 +303,14 @@ class _NormalizationMixin:
             ValueError: If an unsupported normalization mode is encountered.
         """
         norm_mode = self.norm_map.get(feature_type, NormalizationMode.IDENTITY)
-        if norm_mode == NormalizationMode.IDENTITY or key not in self._tensor_stats:
+        # if norm_mode == NormalizationMode.IDENTITY or key not in self._tensor_stats:
+        #     return tensor
+        
+        # only check if IDENTITY or not, 
+        # since only image / camera feature has type VISUAL
+        # whose norm_mode mode is IDENTITY
+        # the true function here is to skip image processing
+        if norm_mode == NormalizationMode.IDENTITY:
             return tensor
 
         if norm_mode not in (
@@ -315,6 +322,14 @@ class _NormalizationMixin:
             raise ValueError(f"Unsupported normalization mode: {norm_mode}")
 
         # For Accelerate compatibility: Ensure stats are on the same device and dtype as the input tensor
+
+        # the model config only provides 'action' and 'observation.state'
+        # but the processor config expects the following 3 keys
+        if key == 'action' or key == 'observation.state':
+            key = 'so100.buffer.action'
+            # key = 'so100-blue.buffer.action'
+            # key = 'so100-red.buffer.action'
+
         if self._tensor_stats and key in self._tensor_stats:
             first_stat = next(iter(self._tensor_stats[key].values()))
             if first_stat.device != tensor.device or first_stat.dtype != tensor.dtype:
