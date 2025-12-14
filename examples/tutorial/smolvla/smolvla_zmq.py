@@ -13,22 +13,15 @@ from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.policies.utils import build_inference_frame, make_robot_action
 
 
-obs_context = zmq.Context()
-obs_socket = obs_context.socket(zmq.SUB)
-obs_socket.connect("tcp://localhost:5556")
-obs_socket.setsockopt(zmq.SUBSCRIBE, b"")
-
-
-act_context = zmq.Context()
-act_socket = act_context.socket(zmq.PUB)
-act_socket.bind("tcp://127.0.0.1:5555")
-
-# Give subscribers a short time to connect
-time.sleep(0.5)
+MODEL_ID = "lerobot/smolvla_base"
 
 MAX_EPISODES = 5
 MAX_STEPS_PER_EPISODE = 20
+STORE_IMAGES = False # whether store preprocessed images from socket to /logs
 IMAGES_STORE_PATH = Path("logs")
+
+INPUT_OBSERVATION_SOCKET = "tcp://localhost:5556"
+OUTPUT_ACTION_SOCKET = "tcp://127.0.0.1:5555"
 
 JOINT_ORDER = [
     'shoulder_pan.pos',
@@ -93,7 +86,7 @@ OBS_FEATURES = {
 
 DATASET_FEATURES = {**ACTION_FEATURES, **OBS_FEATURES}
 
-
+# radian range of so100 joints in Isaac Sim
 SIMULATION_RANGE = {
     'shoulder_pan.pos': {'sim_min': -2.0, 'sim_max': 2.0},
     'shoulder_lift.pos': {'sim_min': 0.0, 'sim_max': 3.5},
@@ -124,13 +117,23 @@ def pos2rad(pos: float, joint_name: str):
     return rad
 
 
-
 if __name__ == "__main__":
+
+    obs_context = zmq.Context()
+    obs_socket = obs_context.socket(zmq.SUB)
+    obs_socket.connect(INPUT_OBSERVATION_SOCKET)
+    obs_socket.setsockopt(zmq.SUBSCRIBE, b"")
+
+    act_context = zmq.Context()
+    act_socket = act_context.socket(zmq.PUB)
+    act_socket.bind(OUTPUT_ACTION_SOCKET)
+    time.sleep(0.5) # Give subscribers a short time to connect
 
     device = torch.device("cuda")
 
-    model_id = "lerobot/smolvla_base"
-    model = SmolVLAPolicy.from_pretrained(model_id)
+
+    model = SmolVLAPolicy.from_pretrained(MODEL_ID)
+    os.makedirs(IMAGES_STORE_PATH, exist_ok=True)
 
     # test other configs
     # model.config.n_action_steps = 5
@@ -138,160 +141,137 @@ if __name__ == "__main__":
     camera_feature_keys = list(model.config.image_features)
     max_supported_cameras = len(camera_feature_keys)
     if max_supported_cameras == 0:
-        raise ValueError(f"Policy {model_id} exposes no camera inputs.")
+        raise ValueError(f"Policy {MODEL_ID} exposes no camera inputs.")
 
     preprocess, postprocess = make_pre_post_processors(
         policy_cfg=model.config,
-        pretrained_path=model_id,
+        pretrained_path=MODEL_ID,
         preprocessor_overrides={"device_processor": {"device": str(device)}},
     )
 
     task = "pick the red block"
     robot_type = "so100_follower"
 
+    print(f"Current task: {task}")
 
-    for _ in range(MAX_EPISODES):
-        # for _ in range(MAX_STEPS_PER_EPISODE):
+    count = 0
+    while True:
 
-        count = 0
-        while True:
+        payload = obs_socket.recv()   # one npz blob
+        buf = io.BytesIO(payload)
+        data = np.load(buf)
 
-            payload = obs_socket.recv()   # one npz blob
-            buf = io.BytesIO(payload)
-            data = np.load(buf)
+        ts = float(data["ts"][0])
+        joints = data["joints"].astype(np.float32)
 
-            ts = float(data["ts"][0])
-            joints = data["joints"].astype(np.float32)
+        # image 1: from topic /camera1_rgb
+        img1_vec = data["img1"]
+        encoded_flag = int(data.get("img1_encoded", np.array([1]))[0])
+        # convert JPEG bytes to numpy image
+        if encoded_flag == 1:
+            buf1 = np.frombuffer(img1_vec.tobytes(), dtype=np.uint8)
+            img1 = cv2.imdecode(buf1, cv2.IMREAD_COLOR)
+        else:
+            img1 = img1_vec.reshape((480, 640, 3))
+        # convert img into RGB
+        img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
 
-            # image 1: from topic /camera1_rgb
-            img1_vec = data["img1"]
-            encoded_flag = int(data.get("img1_encoded", np.array([1]))[0])
-            # convert JPEG bytes to numpy image
-            if encoded_flag == 1:
-                buf1 = np.frombuffer(img1_vec.tobytes(), dtype=np.uint8)
-                img1 = cv2.imdecode(buf1, cv2.IMREAD_COLOR)
-            else:
-                img1 = img1_vec.reshape((480, 640, 3))
-            # convert img into RGB
-            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
+        # image 2: from topic /camera2_rgb
+        img2_vec = data["img2"]
+        encoded_flag = int(data.get("img2_encoded", np.array([1]))[0])
+        # convert JPEG bytes to numpy image
+        if encoded_flag == 1:
+            buf2 = np.frombuffer(img2_vec.tobytes(), dtype=np.uint8)
+            img2 = cv2.imdecode(buf2, cv2.IMREAD_COLOR)
+        else:
+            img2 = img2_vec.reshape((480, 640, 3))
+        # convert img into RGB
+        img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
 
-            # image 2: from topic /camera2_rgb
-            img2_vec = data["img2"]
-            encoded_flag = int(data.get("img2_encoded", np.array([1]))[0])
-            # convert JPEG bytes to numpy image
-            if encoded_flag == 1:
-                buf2 = np.frombuffer(img2_vec.tobytes(), dtype=np.uint8)
-                img2 = cv2.imdecode(buf2, cv2.IMREAD_COLOR)
-            else:
-                img2 = img2_vec.reshape((480, 640, 3))
-            # convert img into RGB
-            img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+        # The expected obs should have this structure:
+        # {
+        #   "shoulder_pan.pos": joint_value,
+        #   "shoulder_lift.pos": joint_value,
+        #   "elbow_flex.pos": joint_value,
+        #   "wrist_flex.pos": joint_value,
+        #   "wrist_roll.pos": joint_value,
+        #   "gripper.pos": joint_value,
+        #   "camera1": cv2.RGB image with shape h, w, c, no rotation
+        #   "camera2": cv2.RGB image with shape h, w, c, no rotation
+        # }
 
-            # obs is dict, which:
-            # dict(
-            #   "shoulder_pan.pos": joint_value,
-            #   "shoulder_lift.pos": joint_value,
-            #   "elbow_flex.pos": joint_value,
-            #   "wrist_flex.pos": joint_value,
-            #   "wrist_roll.pos": joint_value,
-            #   "gripper.pos": joint_value,
-            #   "camera1": cv2.RGB image with shape h, w, c, no rotation
-            #   "camera2": cv2.RGB image with shape h, w, c, no rotation
-            # )
+        obs = {
+            "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos"),
+            "shoulder_lift.pos": rad2pos(rad=joints[1], joint_name="shoulder_lift.pos"),
+            "elbow_flex.pos": rad2pos(rad=joints[2], joint_name="elbow_flex.pos"),
+            "wrist_flex.pos": rad2pos(rad=joints[3], joint_name="wrist_flex.pos"),
+            "wrist_roll.pos": rad2pos(rad=joints[4], joint_name="wrist_roll.pos"),
+            "gripper.pos": rad2pos(rad=joints[5], joint_name="gripper.pos"),
+            "camera1": img1,
+            "camera2": img2,
+        }
 
-            obs = {
-                "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos"),
-                "shoulder_lift.pos": rad2pos(rad=joints[1], joint_name="shoulder_lift.pos"),
-                "elbow_flex.pos": rad2pos(rad=joints[2], joint_name="elbow_flex.pos"),
-                "wrist_flex.pos": rad2pos(rad=joints[3], joint_name="wrist_flex.pos"),
-                "wrist_roll.pos": rad2pos(rad=joints[4], joint_name="wrist_roll.pos"),
-                "gripper.pos": rad2pos(rad=joints[5], joint_name="gripper.pos"),
-                "camera1": img1,
-                "camera2": img2,
-            }
+        # TODO: check what viewpoint angle and distance to robot (i.e. pose) should the camera have
 
-            if count % 10 == 0:
-                cvt_pos = list()
-                for joint_name in JOINT_ORDER:
-                    cvt_pos.append(obs[joint_name])
-                print(f"radian joint state converted into motor pos: {cvt_pos}")
+        # the built obs_frame would have such structure:
+        # {
+        #   "observation.state": torch.Tensor with shape [1, 6]
+        #   "observation.images.camera1": torch.Tensor of image batch with shape [1, c, h, w]
+        #   "task": task string same as input,
+        #   "robot_type": robot_type string same as input,
+        # }
+        obs_frame = build_inference_frame(
+            observation=obs, 
+            ds_features=DATASET_FEATURES, 
+            device=device, 
+            task=task, 
+            robot_type=robot_type,
+        )
 
-            if count == 0:
-                camera_count = sum(key.startswith("camera") for key in obs)
-                if camera_count > max_supported_cameras:
-                    raise ValueError(
-                        f"Received {camera_count} camera feeds but policy supports up to "
-                        f"{max_supported_cameras}: {camera_feature_keys}"
-                    )
-            # TODO: check what viewpoint angle and distance to robot (i.e. pose) should the camera have
+        obs = preprocess(obs_frame)
 
-            # obs_frame = dict(
-            #   "observation.state": torch.Tensor with shape [1, 6]
-            #   "observation.images.camera1": torch.Tensor of image batch with shape [1, c, h, w]
-            #   "task": task string same as input,
-            #   "robot_type": robot_type string same as input,
-            # )
-            obs_frame = build_inference_frame(
-                observation=obs, 
-                ds_features=DATASET_FEATURES, 
-                device=device, 
-                task=task, 
-                robot_type=robot_type,
-            )
+        # save images in obs
+        if STORE_IMAGES and count % 10 == 0:
+            # cam1
+            cam1_img = obs['observation.images.camera1'].cpu().detach().numpy().squeeze().reshape(480, 640, 3)
+            cam1_img_uint8 = (cam1_img * 255).astype(np.uint8)
+            cam1_img_uint8_save = Image.fromarray(cam1_img_uint8)  # expects RGB order
+            cam1_img_uint8_save.save(IMAGES_STORE_PATH / f"obs_cam1_{count}.png")
+            # cam2
+            cam2_img = obs['observation.images.camera2'].cpu().detach().numpy().squeeze().reshape(480, 640, 3)
+            cam2_img_uint8 = (cam2_img * 255).astype(np.uint8)
+            cam2_img_uint8_save = Image.fromarray(cam2_img_uint8)  # expects RGB order
+            cam2_img_uint8_save.save(IMAGES_STORE_PATH / f"obs_cam2_{count}.png")
 
-            obs = preprocess(obs_frame)
+        action = model.select_action(obs)
+        action = postprocess(action)
 
-            os.makedirs(IMAGES_STORE_PATH, exist_ok=True)
+        # the returned action would have such structure:
+        # {
+        #     'shoulder_pan.pos': abs_target_value,
+        #     'shoulder_lift.pos': abs_target_value,
+        #     'elbow_flex.pos': abs_target_value,
+        #     'wrist_flex.pos': abs_target_value, 
+        #     'wrist_roll.pos': abs_target_value, 
+        #     'gripper.pos': abs_target_value, 
+        # }
+        action = make_robot_action(action, DATASET_FEATURES)
 
-            # save images in obs
-            if count % 10 == 0:
-                # cam1
-                cam1_img = obs['observation.images.camera1'].cpu().detach().numpy().squeeze().reshape(480, 640, 3)
-                cam1_img_uint8 = (cam1_img * 255).astype(np.uint8)
-                cam1_img_uint8_save = Image.fromarray(cam1_img_uint8)  # expects RGB order
-                cam1_img_uint8_save.save(IMAGES_STORE_PATH / f"obs_cam1_{count}.png")
-                # cam2
-                cam2_img = obs['observation.images.camera2'].cpu().detach().numpy().squeeze().reshape(480, 640, 3)
-                cam2_img_uint8 = (cam2_img * 255).astype(np.uint8)
-                cam2_img_uint8_save = Image.fromarray(cam2_img_uint8)  # expects RGB order
-                cam2_img_uint8_save.save(IMAGES_STORE_PATH / f"obs_cam2_{count}.png")
+        action_array = np.array([
+            pos2rad(pos=action["shoulder_pan.pos"], joint_name="shoulder_pan.pos"),
+            pos2rad(pos=action["shoulder_lift.pos"], joint_name="shoulder_lift.pos"),
+            pos2rad(pos=action["elbow_flex.pos"], joint_name="elbow_flex.pos"),
+            pos2rad(pos=action["wrist_flex.pos"], joint_name="wrist_flex.pos"),
+            pos2rad(pos=action["wrist_roll.pos"], joint_name="wrist_roll.pos"),
+            pos2rad(pos=action["gripper.pos"], joint_name="gripper.pos"),
+        ],dtype=np.float32)
 
-            action = model.select_action(obs)
-            action = postprocess(action)
+        if count % 10 == 0:
+            print_action = ', '.join(f"{value:2f}" for value in action_array.tolist())
+            print(f"Returned actions: [{print_action}]")
 
-            # returned_ction = {
-            #     'shoulder_pan.pos': abs_target_value,
-            #     'shoulder_lift.pos': abs_target_value,
-            #     'elbow_flex.pos': abs_target_value,
-            #     'wrist_flex.pos': abs_target_value, 
-            #     'wrist_roll.pos': abs_target_value, 
-            #     'gripper.pos': abs_target_value, 
-            # }
-            action = make_robot_action(action, DATASET_FEATURES)
+        # send actions to zmq socket
+        act_socket.send(action_array.tobytes())
 
-            action_array = np.array([
-                pos2rad(pos=action["shoulder_pan.pos"], joint_name="shoulder_pan.pos"),
-                pos2rad(pos=action["shoulder_lift.pos"], joint_name="shoulder_lift.pos"),
-                pos2rad(pos=action["elbow_flex.pos"], joint_name="elbow_flex.pos"),
-                pos2rad(pos=action["wrist_flex.pos"], joint_name="wrist_flex.pos"),
-                pos2rad(pos=action["wrist_roll.pos"], joint_name="wrist_roll.pos"),
-                pos2rad(pos=action["gripper.pos"], joint_name="gripper.pos"),
-            ],dtype=np.float32)
+        count += 1
 
-            if count % 10 == 0:
-                formatted_action = [
-                    f"{action[name]:.3f}" for name in JOINT_ORDER if name in action
-                ]
-                print(f"direct returned target states: [{', '.join(formatted_action)}]")
-                print(f"converted target states: [{action_array.tolist()}]")
-
-            # In PUB/SUB without topics, just send raw bytes.
-            # (If you later want topics, you can use send_multipart([topic, payload]))
-            act_socket.send(action_array.tobytes())
-
-            # TODO: the action values seem still have changes in the stuck position, 
-            # check if it is because the actions are published too fast, and the robot
-            # doesn't have enough time to finish?
-            count += 1
-
-        print("Episode finished! Starting new episode...")
