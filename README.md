@@ -1,6 +1,8 @@
 # Lerobot for SmolVLA
 
-This repo is forked from [official lerobot repo](https://github.com/huggingface/lerobot), especially for project [using SmolVLA inference with Isaac Sim](https://github.com/MyLovelyAxe/isaacsim_vla_ws).
+This repo is forked from [official lerobot repo](https://github.com/huggingface/lerobot), built especially for project [using SmolVLA inference with Isaac Sim](https://github.com/MyLovelyAxe/isaacsim_vla_ws). Here provides 2 deployment method: on laptop or workstation or [Jetson Orin Nano](https://developer.nvidia.com/embedded/learn/get-started-jetson-orin-nano-devkit#intro).
+
+---
 
 ## Table of Contents
 
@@ -13,16 +15,26 @@ This repo is forked from [official lerobot repo](https://github.com/huggingface/
 
 ## Requirements
 
-This package is tested on the following environment configuration:
+On laptop or workstation:
 
 - Ubuntu22.04
 - Anaconda3
 - RTX3080Ti with driver 575.57.08
 - CUDA version 12.9
 
+On Jetson Orin Nano:
+
+- Jetson Orin Nano [8GB developer kit version]
+- Jetpack 6.2.1
+- Docker
+
 ---
 
 ## Installation
+
+
+<details>
+<summary>If run SmolVLA on laptop or workstation, install following these steps:</summary>
 
 #### 1. Create conda env
 
@@ -44,9 +56,30 @@ cd lerobot
 pip install -e ".[smolvla]"
 ```
 
+</details>
+
+
+<details>
+<summary>If run SmolVLA on Jetson Orin Nano, install following these steps:</summary>
+
+#### 1. Install with docker on Jetson
+
+Refer to the `README.md` of repository [lerobot_smolvla_docker](https://github.com/MyLovelyAxe/lerobot_smolvla_docker) to build the image and container for Lerobot SmolVLA.
+
+</details>
+
+---
+
 ## Usage
 
-In a new terminal, start SmolVLA with the following script, which waits for input observation (images and joint states) from Isaac Sim via ZMQ socket, and send out returned actions (absolute target joint states) to Isaac Sim also via ZMQ socket:
+Firstly make sure Isaac Sim and ROS2 work refer to repository [isaacsim_vla_ws](https://github.com/MyLovelyAxe/isaacsim_vla_ws), then start SmolVLA to process. If Isaac Sim doesn't start, this process will suspend and wait for input.
+
+Start SmolVLA with: 
+
+<details>
+<summary>on laptop or workstation:</summary>
+
+Make sure repo lerobot is already installed in a conda env, then in a new terminal:
 
 ```bash
 conda activate smolvla
@@ -54,12 +87,28 @@ cd ~/lerobot/examples/tutorial/smolvla
 python smolvla_zmq.py
 ```
 
+</details>
+
+
+<details>
+<summary>on Jetson Orin Nano:</summary>
+
+Make sure the container `smolvla_pytorch27_container` is already created, then in a new terminal:
+
+```bash
+docker start -ai smolvla_pytorch27_container
+cd /opt/lerobot/examples/tutorial/smolvla
+python smolvla_zmq.py
+```
+
+</details>
+
+---
+
 ## Open tasks
 
-For now the perception-action loop with Isaac Sim and VLA model is setup, but only zero-shot SmolVLA is tested, the performance needs to be improved by fine-tuning SmolVLA. Besides, the VLA model would be deployed on Jetson Orin Nano. Therefore the on-going open tasks of this project include:
+For now the perception-action loop with Isaac Sim and VLA model is setup, but only zero-shot SmolVLA is tested, the performance needs to be improved by fine-tuning SmolVLA. Therefore the on-going open tasks of this project include:
 
 1. Build a pipeline to generate synthetic dataset which fits lerobot format
 
 2. Fine-tune SmolVLA for some manipulation tasks
-
-3. Deploy fine-tuned SmolVLA on Jetson Orin Nano
