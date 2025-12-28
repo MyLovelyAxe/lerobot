@@ -131,8 +131,11 @@ if __name__ == "__main__":
 
     device = torch.device("cuda")
 
-
     model = SmolVLAPolicy.from_pretrained(MODEL_ID)
+    # model = model.to(device)
+    # model.eval()
+    print("Model device:", next(model.parameters()).device)
+
     os.makedirs(IMAGES_STORE_PATH, exist_ok=True)
 
     # test other configs
