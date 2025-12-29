@@ -98,7 +98,7 @@ Make sure the container `smolvla_pytorch27_container` is already created, then i
 ```bash
 docker start -ai smolvla_pytorch27_container
 cd /opt/lerobot/examples/tutorial/smolvla
-python smolvla_zmq.py
+python3 smolvla_zmq.py
 ```
 
 </details>
