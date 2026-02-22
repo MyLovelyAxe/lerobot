@@ -13,8 +13,11 @@ from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.policies.utils import build_inference_frame, make_robot_action
 
 
-MODEL_ID = "lerobot/smolvla_base"
+# ROBOT = "so100"
+ROBOT = "so101"
 
+
+MODEL_ID = "lerobot/smolvla_base"
 MAX_EPISODES = 5
 MAX_STEPS_PER_EPISODE = 20
 STORE_IMAGES = False # whether store preprocessed images from socket to /logs
@@ -89,15 +92,26 @@ DATASET_FEATURES = {**ACTION_FEATURES, **OBS_FEATURES}
 
 # radian range of so100 joints in Isaac Sim
 SIMULATION_RANGE = {
-    'shoulder_pan.pos': {'sim_min': -2.0, 'sim_max': 2.0},
-    'shoulder_lift.pos': {'sim_min': 0.0, 'sim_max': 3.5},
-    'elbow_flex.pos': {'sim_min': -3.142, 'sim_max': 0.0},
-    'wrist_flex.pos': {'sim_min': -2.5, 'sim_max': 1.2},
-    'wrist_roll.pos': {'sim_min': -3.142, 'sim_max': 3.142},
-    'gripper.pos': {'sim_min': -0.2, 'sim_max': 2.0},
+    "so100": {
+        'shoulder_pan.pos': {'sim_min': -2.0, 'sim_max': 2.0},
+        'shoulder_lift.pos': {'sim_min': 0.0, 'sim_max': 3.5},
+        'elbow_flex.pos': {'sim_min': -3.142, 'sim_max': 0.0},
+        'wrist_flex.pos': {'sim_min': -2.5, 'sim_max': 1.2},
+        'wrist_roll.pos': {'sim_min': -3.142, 'sim_max': 3.142},
+        'gripper.pos': {'sim_min': -0.2, 'sim_max': 2.0},
+    },
+    "so101": {
+        'shoulder_pan.pos': {'sim_min': -1.92, 'sim_max': 1.92},
+        'shoulder_lift.pos': {'sim_min': -1.75, 'sim_max': 1.75},
+        'elbow_flex.pos': {'sim_min': -1.69, 'sim_max': 1.69},
+        'wrist_flex.pos': {'sim_min': -1.66, 'sim_max': 1.66},
+        'wrist_roll.pos': {'sim_min': -2.74, 'sim_max': 2.84},
+        'gripper.pos': {'sim_min': -0.17, 'sim_max': 1.74},
+    },
 }
 
-def rad2pos(rad: float, joint_name: str):
+
+def rad2pos(rad: float, joint_name: str, robot: str = "so101"):
     """Convert radians into motor pos.
     
     Isaac Sim joint state has real radian values, while SO100 robot hardware
@@ -105,15 +119,17 @@ def rad2pos(rad: float, joint_name: str):
     use the default value of RobotConfig.use_degrees = False, so it use MotorNormMode.RANGE_M100_100,
     check norm_mode_body of class so100_foller.SO100Follower
     """
-    sim_min = SIMULATION_RANGE[joint_name]['sim_min']
-    sim_max = SIMULATION_RANGE[joint_name]['sim_max']
+    
+    sim_min = SIMULATION_RANGE[robot][joint_name]['sim_min']
+    sim_max = SIMULATION_RANGE[robot][joint_name]['sim_max']
     pos = ((rad - sim_min) / (sim_max - sim_min)) * 200 - 100
     return pos
 
-def pos2rad(pos: float, joint_name: str):
+def pos2rad(pos: float, joint_name: str, robot: str):
     """Convert the motor pos into real radian."""
-    sim_min = SIMULATION_RANGE[joint_name]['sim_min']
-    sim_max = SIMULATION_RANGE[joint_name]['sim_max']
+
+    sim_min = SIMULATION_RANGE[robot][joint_name]['sim_min']
+    sim_max = SIMULATION_RANGE[robot][joint_name]['sim_max']
     rad = sim_min + (pos + 100) / 200 * (sim_max - sim_min)
     return rad
 
@@ -213,12 +229,12 @@ if __name__ == "__main__":
         # }
 
         obs = {
-            "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos"),
-            "shoulder_lift.pos": rad2pos(rad=joints[1], joint_name="shoulder_lift.pos"),
-            "elbow_flex.pos": rad2pos(rad=joints[2], joint_name="elbow_flex.pos"),
-            "wrist_flex.pos": rad2pos(rad=joints[3], joint_name="wrist_flex.pos"),
-            "wrist_roll.pos": rad2pos(rad=joints[4], joint_name="wrist_roll.pos"),
-            "gripper.pos": rad2pos(rad=joints[5], joint_name="gripper.pos"),
+            "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos", robot=ROBOT),
+            "shoulder_lift.pos": rad2pos(rad=joints[1], joint_name="shoulder_lift.pos", robot=ROBOT),
+            "elbow_flex.pos": rad2pos(rad=joints[2], joint_name="elbow_flex.pos", robot=ROBOT),
+            "wrist_flex.pos": rad2pos(rad=joints[3], joint_name="wrist_flex.pos", robot=ROBOT),
+            "wrist_roll.pos": rad2pos(rad=joints[4], joint_name="wrist_roll.pos", robot=ROBOT),
+            "gripper.pos": rad2pos(rad=joints[5], joint_name="gripper.pos", robot=ROBOT),
             "camera1": img1,
             "camera2": img2,
         }
@@ -284,12 +300,12 @@ if __name__ == "__main__":
         action = make_robot_action(action, DATASET_FEATURES)
 
         action_array = np.array([
-            pos2rad(pos=action["shoulder_pan.pos"], joint_name="shoulder_pan.pos"),
-            pos2rad(pos=action["shoulder_lift.pos"], joint_name="shoulder_lift.pos"),
-            pos2rad(pos=action["elbow_flex.pos"], joint_name="elbow_flex.pos"),
-            pos2rad(pos=action["wrist_flex.pos"], joint_name="wrist_flex.pos"),
-            pos2rad(pos=action["wrist_roll.pos"], joint_name="wrist_roll.pos"),
-            pos2rad(pos=action["gripper.pos"], joint_name="gripper.pos"),
+            pos2rad(pos=action["shoulder_pan.pos"], joint_name="shoulder_pan.pos", robot=ROBOT),
+            pos2rad(pos=action["shoulder_lift.pos"], joint_name="shoulder_lift.pos", robot=ROBOT),
+            pos2rad(pos=action["elbow_flex.pos"], joint_name="elbow_flex.pos", robot=ROBOT),
+            pos2rad(pos=action["wrist_flex.pos"], joint_name="wrist_flex.pos", robot=ROBOT),
+            pos2rad(pos=action["wrist_roll.pos"], joint_name="wrist_roll.pos", robot=ROBOT),
+            pos2rad(pos=action["gripper.pos"], joint_name="gripper.pos", robot=ROBOT),
         ],dtype=np.float32)
 
         if count % 10 == 0:
