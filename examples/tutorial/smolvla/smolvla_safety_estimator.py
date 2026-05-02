@@ -1,3 +1,4 @@
+import argparse
 import zmq
 import os
 import numpy as np
@@ -13,8 +14,16 @@ from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.policies.utils import build_inference_frame, make_robot_action
 
 
-# ROBOT = "so100"
-ROBOT = "so101"
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--robot", 
+    type=str, 
+    default="so100", 
+    choices=["so100", "so101"],
+)
+args = parser.parse_args()
+
+ROBOT = args.robot
 
 
 MODEL_ID = "lerobot/smolvla_base"
@@ -159,7 +168,8 @@ if __name__ == "__main__":
     model = SmolVLAPolicy.from_pretrained(MODEL_ID)
     # model = model.to(device)
     # model.eval()
-    print("Model device:", next(model.parameters()).device)
+    print(f"Model device: {next(model.parameters()).device}")
+    print(f"Robot model: {ROBOT}")
 
     os.makedirs(IMAGES_STORE_PATH, exist_ok=True)
 
@@ -316,4 +326,3 @@ if __name__ == "__main__":
         act_socket.send(action_array.tobytes())
 
         count += 1
-
