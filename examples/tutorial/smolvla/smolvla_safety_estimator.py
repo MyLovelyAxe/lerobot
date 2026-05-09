@@ -101,6 +101,7 @@ DATASET_FEATURES = {**ACTION_FEATURES, **OBS_FEATURES}
 
 # radian range of so100 joints in Isaac Sim
 SIMULATION_RANGE = {
+    # TODO: for now, always use so100 range, no matter so100 or so101
     "so100": {
         'shoulder_pan.pos': {'sim_min': -2.0, 'sim_max': 2.0},
         'shoulder_lift.pos': {'sim_min': 0.0, 'sim_max': 3.5},
@@ -119,8 +120,9 @@ SIMULATION_RANGE = {
     },
 }
 
+# TODO: update rad2pos and pos2rad according to norm mode, since gripper uses a different norm range
 
-def rad2pos(rad: float, joint_name: str, robot: str = "so101"):
+def rad2pos(rad: float, joint_name: str, robot: str):
     """Convert radians into motor pos.
     
     Isaac Sim joint state has real radian values, while SO100 robot hardware
@@ -128,18 +130,39 @@ def rad2pos(rad: float, joint_name: str, robot: str = "so101"):
     use the default value of RobotConfig.use_degrees = False, so it use MotorNormMode.RANGE_M100_100,
     check norm_mode_body of class so100_foller.SO100Follower
     """
-    
+
     sim_min = SIMULATION_RANGE[robot][joint_name]['sim_min']
     sim_max = SIMULATION_RANGE[robot][joint_name]['sim_max']
+
+    # TODO: use this after fine-tuning
+    # if joint_name == 'gripper.pos':
+    #     # norm = ((bounded_val - min_) / (max_ - min_)) * 100
+    #     pos = ((rad - sim_min) / (sim_max - sim_min)) * 100
+    # else:
+    #     # norm = (((bounded_val - min_) / (max_ - min_)) * 200) - 100
+    #     pos = ((rad - sim_min) / (sim_max - sim_min)) * 200 - 100
+
+    # TODO: this gives a larger gripper joint value, even though it should use MotorNormMode.RANGE_0_100
     pos = ((rad - sim_min) / (sim_max - sim_min)) * 200 - 100
     return pos
 
+
 def pos2rad(pos: float, joint_name: str, robot: str):
-    """Convert the motor pos into real radian."""
+    """Convert the noramlized motor pos into real radian."""
 
     sim_min = SIMULATION_RANGE[robot][joint_name]['sim_min']
     sim_max = SIMULATION_RANGE[robot][joint_name]['sim_max']
-    rad = sim_min + (pos + 100) / 200 * (sim_max - sim_min)
+
+    # TODO: use this after fine-tuning
+    # if joint_name == 'gripper.pos':
+    #     # unnormalized_values[id_] = int((bounded_val / 100) * (max_ - min_) + min_)
+    #     rad = (pos / 100) * (sim_max - sim_min) + sim_min
+    # else:
+    #     # unnormalized_values[id_] = int(((bounded_val + 100) / 200) * (max_ - min_) + min_)
+    #     rad = (pos + 100) / 200 * (sim_max - sim_min) + sim_min
+    
+    # TODO: use correct version for gripper later
+    rad = (pos + 100) / 200 * (sim_max - sim_min) + sim_min
     return rad
 
 
@@ -237,6 +260,9 @@ if __name__ == "__main__":
         #   "camera1": cv2.RGB image with shape h, w, c, no rotation
         #   "camera2": cv2.RGB image with shape h, w, c, no rotation
         # }
+
+        # the joint states in obs should be normalized as relative position,
+        # i.e. in range [-100, 100] for body joints or [0, 100] for gripper
 
         obs = {
             "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos", robot=ROBOT),
