@@ -36,16 +36,20 @@ def log_joint_state(robot: SO101Follower, label: str) -> None:
 
 
 def main():
+    
     args = parse_args()
-
-    # Find ports using: lerobot-find-port
     follower_port = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF218449-if00"
 
-    # This id is used to load the matching calibration file.
-    # follower_id = "follower_so101"
-    follower_id = "so101_follower_arm"
-    # TODO: try "so101_follower_arm" if the default one raise error, since this id seems to be the name of calibration json
+    # this id seems to be the name of calibration json
     # /home/hardli/.cache/huggingface/lerobot/calibration/robots/so101_follower/so101_follower_arm.json
+    
+    follower_id = "so101_follower_old_calib" 
+
+    # # NOTE: can't directly load new_calib for testing, since after lerobot-calibrate, 
+    # the calibration values are registered into the motors and stay there (confirm this),
+    # and the code examine if the stored register values are the same with the ones trying to load, 
+    # if not, then "mismatch" and will ask for recalibration
+    ## follower_id = "so101_follower_new_calib"
 
     robot_cfg = SO101FollowerConfig(
         port=follower_port,
@@ -66,12 +70,12 @@ def main():
     }
 
     target_pose = {
-        "shoulder_pan.pos": 0.0,
-        "shoulder_lift.pos": -100,
-        "elbow_flex.pos": 100,
-        "wrist_flex.pos": 80,
-        "wrist_roll.pos": -52,
-        "gripper.pos": 3,
+        'shoulder_pan.pos': -2.0,
+        'shoulder_lift.pos': -42.85714285714286 + 100,
+        'elbow_flex.pos': 4.51941438574157 - 100,
+        'wrist_flex.pos': 51.351351351351326,
+        'wrist_roll.pos': 0.0,
+        'gripper.pos': -18.1818181818182,
     }
 
     try:

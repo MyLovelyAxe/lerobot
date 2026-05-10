@@ -110,6 +110,7 @@ class SO101Follower(Robot):
     def calibrate(self) -> None:
         if self.calibration:
             # self.calibration is not empty here
+            print(self.calibration)
             user_input = input(
                 f"Press ENTER to use provided calibration file associated with the id {self.id}, or type 'c' and press ENTER to run calibration: "
             )
@@ -189,6 +190,30 @@ class SO101Follower(Robot):
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
 
         return obs_dict
+
+    def get_current_goal_action(self) -> dict[str, Any]:
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        # Read arm position
+        start = time.perf_counter()
+        obs_dict = self.bus.sync_read("Goal_Position")
+        obs_dict = {f"{motor}.pos": val for motor, val in obs_dict.items()}
+        dt_ms = (time.perf_counter() - start) * 1e3
+        logger.debug(f"{self} read state: {dt_ms:.1f}ms")
+        return obs_dict
+
+    def get_velocity(self):
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        # Read velocity
+        present_velocity = self.bus.sync_read("Present_Velocity")
+        present_velocity = {f"{motor}.pos": val for motor, val in present_velocity.items()}
+        goal_velocity = self.bus.sync_read("Goal_Velocity")
+        goal_velocity = {f"{motor}.pos": val for motor, val in goal_velocity.items()}
+
+        return present_velocity, goal_velocity
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.
