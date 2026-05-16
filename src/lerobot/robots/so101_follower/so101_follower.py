@@ -125,7 +125,11 @@ class SO101Follower(Robot):
             self.bus.write("Operating_Mode", motor, OperatingMode.POSITION.value)
 
         input(f"Move {self} to the middle of its range of motion and press ENTER....")
+        # new calib
         homing_offsets = self.bus.set_half_turn_homings()
+
+        # old calib
+        
 
         print(
             "Move all joints sequentially through their entire ranges "

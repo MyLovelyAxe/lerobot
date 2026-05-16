@@ -21,6 +21,7 @@
 
 import abc
 import logging
+from typing import Tuple, List, Dict, Set
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -37,6 +38,8 @@ from lerobot.utils.utils import enter_pressed, move_cursor_up
 
 NameOrID: TypeAlias = str | int
 Value: TypeAlias = int | float
+
+ENCODER_RESOLUTION = 4096
 
 logger = logging.getLogger(__name__)
 
@@ -714,6 +717,38 @@ class MotorsBus(abc.ABC):
     def _get_half_turn_homings(self, positions: dict[NameOrID, Value]) -> dict[NameOrID, Value]:
         pass
 
+
+    def find_circular_interval(ticks: list[int]) -> tuple[int, int]:
+        ticks = sorted(set(ticks))
+
+        if len(ticks) < 2:
+            raise ValueError("Need at least two distinct ticks.")
+
+        ENCODER_RESOLUTION = 4096
+        gaps = []
+        for i in range(len(ticks) - 1):
+            gaps.append((ticks[i + 1] - ticks[i], ticks[i], ticks[i + 1]))
+
+        gaps.append((ticks[0] + ENCODER_RESOLUTION - ticks[-1], ticks[-1], ticks[0]))
+
+        largest_gap, gap_left, gap_right = max(gaps, key=lambda x: x[0])
+
+        start = gap_right
+        end = gap_left
+
+        if start <= end:
+            continuous_min, continuous_max = start, end
+        else:
+            continuous_min, continuous_max = start, end + ENCODER_RESOLUTION
+
+        if continuous_min >= continuous_max:
+            raise ValueError(
+                f"Invalid interval: {continuous_min=} {continuous_max=} from ticks={ticks}"
+            )
+
+        return continuous_min, continuous_max
+        
+
     def record_ranges_of_motion(
         self, motors: NameOrID | list[NameOrID] | None = None, display_values: bool = True
     ) -> tuple[dict[NameOrID, Value], dict[NameOrID, Value]]:
@@ -738,15 +773,24 @@ class MotorsBus(abc.ABC):
         elif not isinstance(motors, list):
             raise TypeError(motors)
 
+        seen_ticks: Dict[str, Set[int]] = {motor: set() for motor in motors}
+
         start_positions = self.sync_read("Present_Position", motors, normalize=False)
         mins = start_positions.copy()
         maxes = start_positions.copy()
+
+        for motor, tick in start_positions.items():
+            seen_ticks[motor].add(tick)
 
         user_pressed_enter = False
         while not user_pressed_enter:
             positions = self.sync_read("Present_Position", motors, normalize=False)
             mins = {motor: min(positions[motor], min_) for motor, min_ in mins.items()}
             maxes = {motor: max(positions[motor], max_) for motor, max_ in maxes.items()}
+
+            # record all seen ticks
+            for motor, tick in positions.items():
+                seen_ticks[motor].add(tick)
 
             if display_values:
                 print("\n-------------------------------------------")
@@ -761,11 +805,28 @@ class MotorsBus(abc.ABC):
                 # Move cursor up to overwrite the previous output
                 move_cursor_up(len(motors) + 3)
 
+        for motor, ticks in seen_ticks.items():
+            if len(ticks) < 2:
+                raise ValueError(f"Not enough motion recorded for motor {motor}")
+            mins[motor], maxes[motor] = self.find_circular_interval(list(ticks))
         same_min_max = [motor for motor in motors if mins[motor] == maxes[motor]]
         if same_min_max:
             raise ValueError(f"Some motors have the same min and max values:\n{pformat(same_min_max)}")
 
+        for motor, ticks in seen_ticks.items():
+            mins[motor], maxes[motor] = self.find_circular_interval(ticks=list(ticks))
+
         return mins, maxes
+
+    def percent_to_tick(
+        percent: float, 
+        unwrapped_max: int, 
+        unwrapped_min: int,
+    ) -> int:
+        """TODO: docstring"""
+        target = unwrapped_min + percent * (unwrapped_max - unwrapped_min)
+        return int(round(target)) % ENCODER_RESOLUTION
+
 
     def _normalize(self, ids_values: dict[int, int]) -> dict[int, float]:
         if not self.calibration:
@@ -812,15 +873,27 @@ class MotorsBus(abc.ABC):
             if self.motors[motor].norm_mode is MotorNormMode.RANGE_M100_100:
                 val = -val if drive_mode else val
                 bounded_val = min(100.0, max(-100.0, val))
-                unnormalized_values[id_] = int(((bounded_val + 100) / 200) * (max_ - min_) + min_)
+                unnormalized_values[id_] = self.percent_to_tick(
+                    percent=((bounded_val + 100) / 200), 
+                    unwrapped_max=max_,
+                    unwrapped_min=min_, 
+                )
+
             elif self.motors[motor].norm_mode is MotorNormMode.RANGE_0_100:
                 val = 100 - val if drive_mode else val
                 bounded_val = min(100.0, max(0.0, val))
-                unnormalized_values[id_] = int((bounded_val / 100) * (max_ - min_) + min_)
+
+                unnormalized_values[id_] = self.percent_to_tick(
+                    percent=(bounded_val / 100), 
+                    unwrapped_max=max_,
+                    unwrapped_min=min_, 
+                )
+
             elif self.motors[motor].norm_mode is MotorNormMode.DEGREES:
                 mid = (min_ + max_) / 2
                 max_res = self.model_resolution_table[self._id_to_model(id_)] - 1
                 unnormalized_values[id_] = int((val * max_res / 360) + mid)
+
             else:
                 raise NotImplementedError
 
