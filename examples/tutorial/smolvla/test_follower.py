@@ -43,13 +43,13 @@ def main():
     # this id seems to be the name of calibration json
     # /home/hardli/.cache/huggingface/lerobot/calibration/robots/so101_follower/so101_follower_arm.json
     
-    follower_id = "so101_follower_old_calib" 
+    # follower_id = "so101_follower_old_calib" 
 
     # # NOTE: can't directly load new_calib for testing, since after lerobot-calibrate, 
     # the calibration values are registered into the motors and stay there (confirm this),
     # and the code examine if the stored register values are the same with the ones trying to load, 
     # if not, then "mismatch" and will ask for recalibration
-    ## follower_id = "so101_follower_new_calib"
+    follower_id = "so101_follower_new_calib"
 
     robot_cfg = SO101FollowerConfig(
         port=follower_port,
@@ -70,12 +70,12 @@ def main():
     }
 
     target_pose = {
-        'shoulder_pan.pos': -2.0,
-        'shoulder_lift.pos': -42.85714285714286 + 100,
-        'elbow_flex.pos': 4.51941438574157 - 100,
-        'wrist_flex.pos': 51.351351351351326,
+        'shoulder_pan.pos': 0.0,
+        'shoulder_lift.pos': -50.0,
+        'elbow_flex.pos': 50.0,
+        'wrist_flex.pos': 50.0,
         'wrist_roll.pos': 0.0,
-        'gripper.pos': -18.1818181818182,
+        'gripper.pos': 0.0,
     }
 
     try:

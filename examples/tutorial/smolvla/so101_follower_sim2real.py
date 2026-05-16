@@ -39,6 +39,7 @@ HOME_TOL = 0.5
 def move_home_sequential(
     robot: SO101Follower, 
     calib_json: str = "old_calib_home",
+    reverse_order: bool = False,
 ):
     action = {
         k: v
@@ -50,11 +51,14 @@ def move_home_sequential(
     # for motor in robot.bus.motors:
     #     robot.bus.write("Acceleration", motor, 254)
 
+    joint_order = JOINT_ORDER.copy()
+    if reverse_order:
+        joint_order.reverse()
 
     dt = 1.0 / HOME_MOVE_HZ
     max_step = HOME_SPEED * dt
 
-    for joint_name in JOINT_ORDER:
+    for joint_name in joint_order:
         logging.info(f"Moving {joint_name} to home")
 
         while True:
@@ -108,7 +112,7 @@ MODEL_ID = "lerobot/smolvla_base"
 MAX_EPISODES = 5
 MAX_STEPS_PER_EPISODE = 20
 STORE_IMAGES = False # whether store preprocessed images from socket to /logs
-RECORD_ACTIONS = True # store the actions into json for later reply
+RECORD_ACTIONS = False # store the actions into json for later reply
 IMAGES_STORE_PATH = Path("logs")
 
 INPUT_OBSERVATION_SOCKET = "tcp://localhost:5556"
@@ -211,12 +215,20 @@ HOME_JOINT_STATE = {
         'wrist_roll.pos': 0.0,
         'gripper.pos': 0.0,
     },
+    # "new_calib_home": {
+    #     'shoulder_pan.pos': -4.0,
+    #     'shoulder_lift.pos': -99.0,
+    #     'elbow_flex.pos': 98.0,
+    #     'wrist_flex.pos': -80.0,
+    #     'wrist_roll.pos': -55.0,
+    #     'gripper.pos': 0.0,
+    # },
     "new_calib_home": {
-        'shoulder_pan.pos': -4.0,
-        'shoulder_lift.pos': -99.0,
-        'elbow_flex.pos': 98.0,
-        'wrist_flex.pos': 40.0,
-        'wrist_roll.pos': -55.0,
+        'shoulder_pan.pos': 0.0,
+        'shoulder_lift.pos': 0.0,
+        'elbow_flex.pos': 0.0,
+        'wrist_flex.pos': 0.0,
+        'wrist_roll.pos': 0.0,
         'gripper.pos': 0.0,
     },
 }
@@ -330,13 +342,14 @@ if __name__ == "__main__":
 
     os.makedirs(IMAGES_STORE_PATH, exist_ok=True)
 
+    recorded_actions: Dict[int, Dict[str, float]] = dict()
 
     try:
 
         # this id seems to be the name of calibration json
         # /home/hardli/.cache/huggingface/lerobot/calibration/robots/so101_follower/so101_follower_arm.json
-        # follower_calibration_json_filename = "so101_follower_new_calib"
-        follower_calibration_json_filename = "so101_follower_old_calib"
+        follower_calibration_json_filename = "so101_follower_new_calib"
+        # follower_calibration_json_filename = "so101_follower_old_calib"
 
         robot_cfg = SO101FollowerConfig(
             port=FOLLOWER_PORT_ID,
@@ -371,7 +384,11 @@ if __name__ == "__main__":
             joint_state=goal_velocity,
             logging_label="Goal velocity",
         )
-        move_home_sequential(robot)
+        move_home_sequential(
+            robot=robot, 
+            calib_json="new_calib_home",
+            reverse_order=True,
+        )
         logging.info(f"Robot returns to home, wait for 3 seconds......")
         time.sleep(3)
         logging.info(f"Robot ready to go")
@@ -394,8 +411,6 @@ if __name__ == "__main__":
         )
 
         count = 0
-
-        recorded_actions: Dict[int, Dict[str, float]] = dict()
 
         while True:
 
@@ -575,10 +590,11 @@ if __name__ == "__main__":
 
     finally:
         
-        recroded_actions_output_json = Path(f"{current_time}_recorded_actions.json")
-        logging.info(f"Record the current action series into {record_action_folder}")
-        with open(record_action_folder / recroded_actions_output_json, "w") as f:
-            json.dump(recorded_actions, f, indent=2)
+        if RECORD_ACTIONS:
+            recroded_actions_output_json = Path(f"{current_time}_recorded_actions.json")
+            logging.info(f"Record the current action series into {record_action_folder}")
+            with open(record_action_folder / recroded_actions_output_json, "w") as f:
+                json.dump(recorded_actions, f, indent=2)
 
         logging.info("Releasing robot torque and disconnecting")
         if robot.is_connected:
