@@ -1,35 +1,17 @@
-import argparse
-import zmq
-import json
-import os
 import numpy as np
-import io
 import copy
-import cv2
-import torch
 import time
-from PIL import Image
-from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import logging
 logging.basicConfig(level=logging.INFO)
 
-from pprint import pformat
-from lerobot.policies.factory import make_pre_post_processors
-from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
-from lerobot.policies.utils import build_inference_frame, make_robot_action
 from lerobot.utils.robot_utils import precise_sleep
 
 from lerobot.utils.sim2real_constant import (
     HOME_MOVE_HZ,
     HOME_SPEED,
     HOME_TOL,
-    INPUT_OBSERVATION_SOCKET,
-    OUTPUT_ACTION_SOCKET,
-    EMPTY_SIGNAL_SOCKET,
-    HOME_JOINT_STATE,
     JOINT_ORDER,
     SIMULATION_RANGE,
     SO101_FOLLOWER_NEW_CALIB,
@@ -170,3 +152,71 @@ def remap_action_between_calibrations(
         remapped_action[joint_name] = target_pos
 
     return remapped_action
+
+# TODO: remove
+def smooth_step(
+    t, 
+    T,
+):
+    """Compute one smooth step for one timestamp."""
+    tau = np.clip(t / T, 0.0, 1.0)
+    return 3 * tau**2 - 2 * tau**3
+
+def generate_trajectory(
+    q_start: np.ndarray, 
+    q_target: np.ndarray, 
+    T: float = 3.0, 
+    dt: float = 0.02,
+) -> List[Dict[str, float]]:
+    """Generate a simple and smooth trajectory between 2 joint states.
+    
+    :param q_start: starting joint state
+    :param q_target: target joint state
+    :param T: the complete duration to execute the trajectory
+    :param dt: temporal interval in the trajectory
+    """
+    
+    q_start = np.array(q_start, dtype=float)
+    q_target = np.array(q_target, dtype=float)
+
+    trajectory: List[Dict[str, float]] = list()
+    times = np.arange(0.0, T + dt, dt)
+
+    # compute one smooth step for one timestamp
+    smooth_step = lambda tau: 3 * tau**2 - 2 * tau**3
+
+    for t in times:
+        s = smooth_step(tau=t/T)
+        q = q_start + s * (q_target - q_start)
+        step = {
+            "timestamp": t,
+            "joint_state": q.tolist(),
+        }
+        trajectory.append(step)
+
+    return trajectory
+
+def generate_robot_actions_trajectory(
+    start_state: Dict[str, float],
+    target_state: Dict[str, float],
+    T: float = 3.0, 
+    dt: float = 0.02,
+) -> List[Dict[str, float]]:
+    """Generate trajectory in form of robot actions."""
+
+    q_start = np.array([start_state[name] for name in JOINT_ORDER], dtype=np.float32)
+    q_target = np.array([target_state[name] for name in JOINT_ORDER], dtype=np.float32)
+    print(q_start)
+    trajectory = generate_trajectory(
+        q_start=q_start, 
+        q_target=q_target, 
+        T=T, 
+        dt=dt,
+    )
+    action_trajectory: List[Dict[str, float]] = list()
+    for step in trajectory:
+        print(step)
+        action_trajectory.append(
+            dict(zip(JOINT_ORDER, step["joint_state"])),
+        )
+    return action_trajectory

@@ -9,11 +9,18 @@ $ python test_follower.py --send-action
 
 import argparse
 import time
-from pprint import pformat
+import numpy as np
 
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
-
+from lerobot.utils.robot_utils import precise_sleep
+from lerobot.utils.sim2real_utils import (
+    generate_robot_actions_trajectory,
+    log_joint_state,
+)
+from lerobot.utils.sim2real_constant import (
+    JOINT_ORDER,
+)
 
 LOG_SECONDS = 5.0
 LOG_HZ = 10.0
@@ -26,13 +33,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Send the target pose before logging. Without this flag, the script only logs joint positions.",
     )
+    parser.add_argument(
+        "--exec_duration",
+        type=float,
+        default=5.0,
+        help="The duration of executing the trajectory from initial pose to target pose, in seconds.",
+    )
+    parser.add_argument(
+        "--exec_steps",
+        type=int,
+        default=80*5, # 50 times per second
+        help="How many steps will the trajectory be executed.",
+    )
     return parser.parse_args()
 
 
-def log_joint_state(robot: SO101Follower, label: str) -> None:
-    observation = robot.get_observation()
-    joint_state = {key: value for key, value in observation.items() if key.endswith(".pos")}
-    print(f"{label}:\n{pformat(joint_state, sort_dicts=False)}")
 
 
 def main():
@@ -60,39 +75,46 @@ def main():
     )
     robot = SO101Follower(config=robot_cfg)
 
-    initial_pose = {
-        'shoulder_pan.pos': -4.466592838685855,
-        'shoulder_lift.pos': -99.33026370866472,
-        'elbow_flex.pos': 98.45665002269632,
-        'wrist_flex.pos': 79.51176983435047,
-        'wrist_roll.pos': -52.22544113774032,
-        'gripper.pos': 0.3434065934065934,
-    }
+
 
     target_pose = {
-        'shoulder_pan.pos': 0.0,
+        'shoulder_pan.pos': -50.0,
         'shoulder_lift.pos': -50.0,
         'elbow_flex.pos': 50.0,
         'wrist_flex.pos': 50.0,
-        'wrist_roll.pos': 0.0,
-        'gripper.pos': 0.0,
+        'wrist_roll.pos': -40.0,
+        'gripper.pos': 30.0,
     }
+
 
     try:
         robot.connect()
 
-        log_joint_state(robot, "Initial joint state")
+        initial_pose = robot.get_observation()
+        dt = args.exec_duration / args.exec_steps
+        action_trajectory = generate_robot_actions_trajectory(
+            start_state=initial_pose,
+            target_state=target_pose,
+            T=args.exec_duration, 
+            dt=dt,
+        )
+
+        log_joint_state(
+            joint_state=robot.get_observation(),
+            logging_label="Initial joint state",
+        )
         if args.send_action:
-            sent_action = robot.send_action(target_pose)
-            print(f"Sent target pose:\n{pformat(sent_action, sort_dicts=False)}")
+            for curr_action in action_trajectory:
+                loop_start = time.perf_counter()
+                sent_action = robot.send_action(curr_action)
+                log_joint_state(
+                    joint_state=sent_action,
+                    logging_label="Sent action",
+                )
+                precise_sleep(dt - (time.perf_counter() - loop_start))
         else:
             print("Logging only. No action sent. Use --send-action to command the target pose.")
 
-        dt = 1.0 / LOG_HZ
-        end_time = time.perf_counter() + LOG_SECONDS
-        while time.perf_counter() < end_time:
-            log_joint_state(robot, "Current joint state")
-            time.sleep(dt)
     finally:
         if robot.is_connected:
             robot.disconnect()

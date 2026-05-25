@@ -13,7 +13,6 @@ import json
 import os
 import numpy as np
 import io
-import copy
 import cv2
 import torch
 import time
@@ -23,7 +22,6 @@ from typing import Dict, List, Tuple
 import logging
 logging.basicConfig(level=logging.INFO)
 
-from pprint import pformat
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
