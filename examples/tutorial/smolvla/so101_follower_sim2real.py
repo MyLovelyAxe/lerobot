@@ -137,47 +137,48 @@ if __name__ == "__main__":
     recorded_actions: Dict[int, Dict[str, float]] = dict()
 
     try:
-        robot_cfg = SO101FollowerConfig(
-            port=SO101_FOLLOWER_PORT_ID,
-            id=SO101_FOLLOWER_NEW_CALIB, # calibration.json name
-            cameras={},
-            # Set to a positive value to clip large jumps for safety, or None to send the exact target.
-            max_relative_target=None,
-        )
-        robot = SO101Follower(config=robot_cfg)
-        robot.connect()
-        log_joint_state(
-            joint_state=robot.get_observation(),
-            logging_label="Initial joint state",
-        )
-        log_joint_state(
-            joint_state=robot.get_current_goal_action(),
-            logging_label="Current stored goal position",
-        )
+        if args.send_action:
+            robot_cfg = SO101FollowerConfig(
+                port=SO101_FOLLOWER_PORT_ID,
+                id=SO101_FOLLOWER_NEW_CALIB, # calibration.json name
+                cameras={},
+                # Set to a positive value to clip large jumps for safety, or None to send the exact target.
+                max_relative_target=None,
+            )
+            robot = SO101Follower(config=robot_cfg)
+            robot.connect()
+            log_joint_state(
+                joint_state=robot.get_observation(),
+                logging_label="Initial joint state",
+            )
+            log_joint_state(
+                joint_state=robot.get_current_goal_action(),
+                logging_label="Current stored goal position",
+            )
 
-        # return to initial joint state
-        curr_joint_state = robot.get_observation()
-        log_joint_state(
-            joint_state=curr_joint_state,
-            logging_label="Moving to home pose, current joint state",
-        )
-        present_velocity, goal_velocity = robot.get_velocity()
-        log_joint_state(
-            joint_state=present_velocity,
-            logging_label="Present velocity",
-        )
-        log_joint_state(
-            joint_state=goal_velocity,
-            logging_label="Goal velocity",
-        )
-        move_robot_to_target_pose(
-            robot=robot, 
-            target_pose=HOME_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB],
-            reverse_order=True,
-        )
-        logging.info(f"Robot returns to home, wait for 3 seconds......")
-        time.sleep(3)
-        logging.info(f"Robot ready to go")
+            # return to initial joint state
+            curr_joint_state = robot.get_observation()
+            log_joint_state(
+                joint_state=curr_joint_state,
+                logging_label="Moving to home pose, current joint state",
+            )
+            present_velocity, goal_velocity = robot.get_velocity()
+            log_joint_state(
+                joint_state=present_velocity,
+                logging_label="Present velocity",
+            )
+            log_joint_state(
+                joint_state=goal_velocity,
+                logging_label="Goal velocity",
+            )
+            move_robot_to_target_pose(
+                robot=robot, 
+                target_pose=HOME_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB],
+                reverse_order=True,
+            )
+            logging.info(f"Robot returns to home, wait for 3 seconds......")
+            time.sleep(3)
+            logging.info(f"Robot ready to go")
 
         model = SmolVLAPolicy.from_pretrained(MODEL_ID)
 
@@ -301,7 +302,7 @@ if __name__ == "__main__":
                 model._queues["action"].clear()
                 print(f"Too many unsafe actions, clear the current chunk......")
 
-            if count % args.log_hz == 0:
+            if args.send_action and count % args.log_hz == 0:
                 log_joint_state(
                     joint_state=robot.get_observation(),
                     logging_label="Current joint state (calibrated position)",
@@ -369,27 +370,32 @@ if __name__ == "__main__":
         logging.info("Ctrl-C received")
 
     finally:
+
+        if args.send_action:
         
-        if args.record_actions:
-            recroded_actions_json = record_folder / "recorded_actions.json"
-            logging.info(f"Record the current action series into {recroded_actions_json}")
-            with open(recroded_actions_json, "w") as f:
-                json.dump(recorded_actions, f, indent=2)
+            if args.record_actions:
+                recroded_actions_json = record_folder / "recorded_actions.json"
+                logging.info(f"Record the current action series into {recroded_actions_json}")
+                with open(recroded_actions_json, "w") as f:
+                    json.dump(recorded_actions, f, indent=2)
 
-        logging.info("Releasing robot torque and disconnecting")
-        if robot.is_connected:
-            try:
-                robot.bus.disable_torque(num_retry=5)
-            except Exception as e:
-                logging.warning(f"Could not disable torque: {e}")
+            logging.info("Releasing robot torque and disconnecting")
+            if robot.is_connected:
+                try:
+                    robot.bus.disable_torque(num_retry=5)
+                except Exception as e:
+                    logging.warning(f"Could not disable torque: {e}")
 
-            try:
-                # move the robot to return pose
-                move_robot_to_target_pose(
-                    robot=robot, 
-                    target_pose=RETURN_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB],
-                    reverse_order=False,
-                )
-                robot.disconnect()
-            except Exception as e:
-                logging.warning(f"Could not disconnect robot: {e}")
+                try:
+                    # move the robot to return pose
+                    move_robot_to_target_pose(
+                        robot=robot, 
+                        target_pose=RETURN_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB],
+                        reverse_order=False,
+                    )
+                    robot.disconnect()
+                except Exception as e:
+                    logging.warning(f"Could not disconnect robot: {e}")
+
+        else:
+            logging.info(f"No real robot is involved, exit safely.")
