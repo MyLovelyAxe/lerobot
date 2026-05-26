@@ -121,46 +121,21 @@ def pos2rad(
     return rad
 
 
-def remap_action_between_calibrations(
-    action: Dict[str, float],
-    source_calib: str = SO101_FOLLOWER_OLD_CALIB,
-    target_calib: str = SO101_FOLLOWER_NEW_CALIB,
-    clip: bool = True,
-) -> Dict[str, float]:
-    """Map normalized joint targets from one calibration range to another.
-
-    The base model appears to output normalized positions for the original
-    SO101 range. This converts each value to the equivalent simulated radian
-    position in that source range, then converts that radian position into the
-    target normalized range.
+def joint_state_pos2rad(
+    pos_joint_state: Dict[str, float],
+    calibration: str = SO101_FOLLOWER_NEW_CALIB,
+) -> np.ndarray:
+    """ Convert calibrated normalized joint state into radian for all joints.
+    
+    :param pos_joint_state: calibrated normalized joint state
+    :param calibration: calibration method
     """
+    rad_joint_state = np.array([
+        pos2rad(pos=pos_joint_state[joint], joint_name=joint, calibration=calibration) for joint in JOINT_ORDER
+    ],dtype=np.float32)
 
-    remapped_action = copy.deepcopy(action)
-    for joint_name in JOINT_ORDER:
-        source_rad = pos2rad(
-            pos=action[joint_name],
-            joint_name=joint_name,
-            calibration=source_calib,
-        )
-        target_pos = rad2pos(
-            rad=source_rad,
-            joint_name=joint_name,
-            calibration=target_calib,
-        )
-        if clip:
-            target_pos = float(np.clip(target_pos, -100.0, 100.0))
-        remapped_action[joint_name] = target_pos
+    return rad_joint_state
 
-    return remapped_action
-
-# TODO: remove
-def smooth_step(
-    t, 
-    T,
-):
-    """Compute one smooth step for one timestamp."""
-    tau = np.clip(t / T, 0.0, 1.0)
-    return 3 * tau**2 - 2 * tau**3
 
 def generate_trajectory(
     q_start: np.ndarray, 
@@ -206,7 +181,6 @@ def generate_robot_actions_trajectory(
 
     q_start = np.array([start_state[name] for name in JOINT_ORDER], dtype=np.float32)
     q_target = np.array([target_state[name] for name in JOINT_ORDER], dtype=np.float32)
-    print(q_start)
     trajectory = generate_trajectory(
         q_start=q_start, 
         q_target=q_target, 
@@ -215,7 +189,6 @@ def generate_robot_actions_trajectory(
     )
     action_trajectory: List[Dict[str, float]] = list()
     for step in trajectory:
-        print(step)
         action_trajectory.append(
             dict(zip(JOINT_ORDER, step["joint_state"])),
         )

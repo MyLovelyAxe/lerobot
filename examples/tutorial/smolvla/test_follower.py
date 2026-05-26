@@ -14,11 +14,11 @@ $ python test_follower.py --sim --real
 
 import argparse
 import time
-import numpy as np
 import zmq
 import logging
 logging.basicConfig(level=logging.INFO)
 
+from typing import Dict
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.utils.robot_utils import precise_sleep
@@ -28,21 +28,15 @@ from lerobot.utils.sim2real_utils import (
 )
 from lerobot.utils.sim2real_constant import (
     JOINT_ORDER,
-    INPUT_OBSERVATION_SOCKET,
     OUTPUT_ACTION_SOCKET,
-    EMPTY_SIGNAL_SOCKET,
-    DATASET_FEATURES,
     SO101_FOLLOWER_PORT_ID,
-    MODEL_ID,
     RETURN_JOINT_STATE,
     SO101_FOLLOWER_NEW_CALIB,
-    HOME_JOINT_STATE,
 )
 from lerobot.utils.sim2real_utils import (
     move_robot_to_target_pose,
     log_joint_state,
-    rad2pos,
-    pos2rad,
+    joint_state_pos2rad,
 )
 
 
@@ -73,6 +67,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=80, # 50 times per second
         help="How many steps will the trajectory be executed per second.",
+    )
+    parser.add_argument(
+        "--verbose",
+        type=bool,
+        default=True,
+        help="Whether log the process or not.",
     )
     return parser.parse_args()
 
@@ -116,6 +116,20 @@ def main():
 
     try:
         # move to initial pose firstly
+        # TODO: make sim and real reseting into separate thread
+        if args.sim:
+            sim_action = joint_state_pos2rad(
+                pos_joint_state=initial_pose,
+                calibration=SO101_FOLLOWER_NEW_CALIB,
+            )
+            act_socket.send(sim_action.tobytes())
+            logging.info(f"Move simulated robot to initial pose......")
+            # TODO: how to check if simulated robot finishes reseting?
+            # the move_robot_to_target_pose for real robot has precise control inside
+            # but for isaac sim, just sending target pose to controller
+            # temporarily just set a higher waiting time
+            time.sleep(5)
+            logging.info(f"Simulated robot is ready to go")
         if args.real:
             robot.connect()
             move_robot_to_target_pose(
@@ -125,22 +139,30 @@ def main():
             )
             logging.info(f"Robot returns to home, wait for 3 seconds......")
             time.sleep(3)
-            logging.info(f"Robot ready to go")
-        if args.real:
-            pass
+            logging.info(f"Hardware robot is ready to go")
 
         # exeucte the trajectory
         for curr_action in action_trajectory:
             loop_start = time.perf_counter()
             # TODO: make sim and real into 2 threads
             if args.real:
-                sent_action = robot.send_action(curr_action)
-                log_joint_state(
-                    joint_state=sent_action,
-                    logging_label="Sent action",
-                )
+                sent_real_action = robot.send_action(curr_action)
+                if args.verbose:
+                    log_joint_state(
+                        joint_state=sent_real_action,
+                        logging_label="Sent action to real robot",
+                    )
             if args.sim:
-                pass
+                sent_sim_action = joint_state_pos2rad(
+                    pos_joint_state=curr_action,
+                    calibration=SO101_FOLLOWER_NEW_CALIB,
+                )
+                act_socket.send(sent_sim_action.tobytes())
+                if args.verbose:
+                    log_joint_state(
+                        joint_state=dict(zip(JOINT_ORDER, sent_sim_action)),
+                        logging_label="Sent action to simulated robot",
+                    )
             precise_sleep(dt - (time.perf_counter() - loop_start))
         
 
