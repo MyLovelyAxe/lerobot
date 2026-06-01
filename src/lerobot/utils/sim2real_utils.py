@@ -136,6 +136,21 @@ def joint_state_pos2rad(
 
     return rad_joint_state
 
+def joint_state_rad2pos(
+    rad_joint_state: np.ndarray,
+    calibration: str = SO101_FOLLOWER_NEW_CALIB,
+) -> Dict[str, float]:
+    """ Convert calibrated normalized joint state into radian for all joints.
+    
+    :param rad_joint_state: joint state values in unit of radian
+    :param calibration: calibration method
+    """
+    rad_joint_state = {
+        joint: rad2pos(rad=rad_joint_state[idx], joint_name=joint, calibration=calibration) for idx, joint in enumerate(JOINT_ORDER)
+    }
+
+    return rad_joint_state
+
 
 def generate_trajectory(
     q_start: np.ndarray, 

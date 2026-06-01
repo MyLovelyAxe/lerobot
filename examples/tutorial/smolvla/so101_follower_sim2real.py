@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot",
         type=str,
-        default="so100_follower",
+        default="so100_follower", # TODO: check if this should be so101_follower, what difference does it make
         help="The robot type",
     )
     parser.add_argument(
@@ -345,6 +345,7 @@ if __name__ == "__main__":
 
 
             # send the actions to simulated robot
+            # TODO: replace with joint_state_pos2rad and verify
             sim_action = np.array([
                 pos2rad(pos=raw_action["shoulder_pan.pos"], joint_name="shoulder_pan.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
                 pos2rad(pos=raw_action["shoulder_lift.pos"], joint_name="shoulder_lift.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
