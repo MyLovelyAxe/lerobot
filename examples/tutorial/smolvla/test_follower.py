@@ -107,12 +107,21 @@ def main():
     }
 
     dt = 1 / args.exec_steps_per_sec
-    action_trajectory = generate_robot_actions_trajectory(
+    all_trajectories = list()
+    action_trajectory_go = generate_robot_actions_trajectory(
         start_state=initial_pose,
         target_state=target_pose,
         T=args.exec_duration, 
         dt=dt,
     )
+    all_trajectories.append(action_trajectory_go)
+    action_trajectory_back = generate_robot_actions_trajectory(
+        start_state=target_pose,
+        target_state=initial_pose,
+        T=args.exec_duration, 
+        dt=dt,
+    )
+    all_trajectories.append(action_trajectory_back)
 
     try:
         # move to initial pose firstly
@@ -142,28 +151,29 @@ def main():
             logging.info(f"Hardware robot is ready to go")
 
         # exeucte the trajectory
-        for curr_action in action_trajectory:
-            loop_start = time.perf_counter()
-            # TODO: make sim and real into 2 threads
-            if args.real:
-                sent_real_action = robot.send_action(curr_action)
-                if args.verbose:
-                    log_joint_state(
-                        joint_state=sent_real_action,
-                        logging_label="Sent action to real robot",
+        for action_trajectory in all_trajectories:
+            for curr_action in action_trajectory:
+                loop_start = time.perf_counter()
+                # TODO: make sim and real into 2 threads
+                if args.real:
+                    sent_real_action = robot.send_action(curr_action)
+                    if args.verbose:
+                        log_joint_state(
+                            joint_state=sent_real_action,
+                            logging_label="Sent action to real robot",
+                        )
+                if args.sim:
+                    sent_sim_action = joint_state_pos2rad(
+                        pos_joint_state=curr_action,
+                        calibration=SO101_FOLLOWER_NEW_CALIB,
                     )
-            if args.sim:
-                sent_sim_action = joint_state_pos2rad(
-                    pos_joint_state=curr_action,
-                    calibration=SO101_FOLLOWER_NEW_CALIB,
-                )
-                act_socket.send(sent_sim_action.tobytes())
-                if args.verbose:
-                    log_joint_state(
-                        joint_state=dict(zip(JOINT_ORDER, sent_sim_action)),
-                        logging_label="Sent action to simulated robot",
-                    )
-            precise_sleep(dt - (time.perf_counter() - loop_start))
+                    act_socket.send(sent_sim_action.tobytes())
+                    if args.verbose:
+                        log_joint_state(
+                            joint_state=dict(zip(JOINT_ORDER, sent_sim_action)),
+                            logging_label="Sent action to simulated robot",
+                        )
+                precise_sleep(dt - (time.perf_counter() - loop_start))
         
 
     finally:
