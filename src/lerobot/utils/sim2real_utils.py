@@ -1,10 +1,10 @@
 import numpy as np
-import copy
 import time
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import logging
 logging.basicConfig(level=logging.INFO)
 
+from scipy.interpolate import interp1d
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.utils.robot_utils import precise_sleep
 
@@ -15,7 +15,6 @@ from lerobot.utils.sim2real_constant import (
     JOINT_ORDER,
     SIMULATION_RANGE,
     SO101_FOLLOWER_NEW_CALIB,
-    SO101_FOLLOWER_OLD_CALIB,
 )
 
 def move_robot_to_target_pose(
@@ -208,3 +207,93 @@ def generate_robot_actions_trajectory(
             dict(zip(JOINT_ORDER, step["joint_state"])),
         )
     return action_trajectory
+
+
+def crop_by_time_percentage(
+    times, 
+    percentage,
+):
+    """TODO: docstring"""
+    times = np.array(sorted(times))
+    t0 = times[0]
+    t1 = times[-1]
+    start_t = t0 + percentage[0] * (t1 - t0)
+    end_t = t0 + percentage[1] * (t1 - t0)
+    return times[(times >= start_t) & (times <= end_t)]
+
+
+def compute_latency(
+    reference_actions: Dict[str, Dict[str, float]],
+    target_actions: Dict[str, Dict[str, float]],
+    lag_range: Tuple[int, int] = (-1, 1),
+    lag_step: float = 0.001,
+    percentage: Tuple[float, float] = (0.0, 1.0),
+) -> float:
+    """Compute the latency [ms] between sending and executing actions.
+
+    Both of reference_actions and target_actions should have this structure:
+    - timestamp:
+        - joint name: calibrated normalized state
+
+    :param reference_actions: the time - action pairs when sent to robot
+    :param target_actions: the time - action pairs when truly executed on robot
+    """
+
+    # Sort timestamps
+    ref_times_all = np.array(sorted(reference_actions.keys()))
+    target_times_all = np.array(sorted(target_actions.keys()))
+
+    # Crop each trajectory by its own time duration, not by shared index.
+    t_ref = crop_by_time_percentage(ref_times_all, percentage)
+    t_target = crop_by_time_percentage(target_times_all, percentage)
+    q_ref = np.array([
+        [reference_actions[t][j] for j in JOINT_ORDER]
+        for t in t_ref
+    ])
+    q_target = np.array([
+        [target_actions[t][j] for j in JOINT_ORDER]
+        for t in t_target
+    ])
+
+    # Build interpolation functions
+    interpolators = []
+    for joint_idx in range(len(JOINT_ORDER)):
+        interpolators.append(
+            interp1d(
+                t_target,
+                q_target[:, joint_idx],
+                kind="linear",
+                bounds_error=False,
+                fill_value=np.nan,
+            )
+        )
+
+    # Search lag
+    lags = np.arange(
+        lag_range[0],
+        lag_range[1] + lag_step,
+        lag_step
+    )
+    errors = []
+    for lag in lags:
+        shifted_time = t_ref + lag
+        q_interp = np.column_stack([
+            f(shifted_time)
+            for f in interpolators
+        ])
+        valid_mask = ~np.isnan(q_interp).any(axis=1)
+        if valid_mask.sum() < 10:
+            errors.append(np.inf)
+            continue
+        error = np.mean(
+            (
+                q_ref[valid_mask]
+                - q_interp[valid_mask]
+            ) ** 2
+        )
+        errors.append(error)
+
+    errors = np.array(errors)
+    best_idx = np.argmin(errors)
+
+    return lags[best_idx]

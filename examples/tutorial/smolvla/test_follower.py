@@ -22,13 +22,14 @@ import logging
 import numpy as np
 logging.basicConfig(level=logging.INFO)
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.sim2real_utils import (
     generate_robot_actions_trajectory,
     log_joint_state,
+    compute_latency,
 )
 from lerobot.utils.sim2real_constant import (
     JOINT_ORDER,
@@ -46,6 +47,7 @@ from lerobot.utils.sim2real_utils import (
 )
 from lerobot.utils.sim2real_debug import (
     print_record,
+    plot_joint_lines_in_record,
 )
 
 
@@ -58,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sim",
         action="store_true",
-        default=False,
+        default=True,
         help="Send target pose to simulation. Without this flag, the script only logs joint positions.",
     )
     parser.add_argument(
@@ -115,7 +117,6 @@ def send_action_worker(
     """
     logging.info("Thread send_action_worker begins.")
 
-    # TODO: add a label to indicate when sending action is finished, let recording workers to stop
     # NOTE: only record calibrated normalized actions
     latency_info = {
         "send_real": dict(),
@@ -176,8 +177,8 @@ def record_sim_joint_state_worker(
     }
 
     while not send_action_finish.is_set():
-        record_sim_time = time.perf_counter()
         payload = obs_socket.recv()   # one npz blob
+        record_sim_time = time.perf_counter()
         buf = io.BytesIO(payload)
         data = np.load(buf)
         # NOTE: this is a list of joint state values, needs to convert
@@ -226,21 +227,6 @@ def record_real_joint_state_worker(
     logging.info("Thread record_real_joint_state_worker ends.")
 
 
-def compute_latency(
-    sent_actions: Dict[str, Dict[str, float]],
-    exec_actions: Dict[str, Dict[str, float]],
-) -> float:
-    """Compute the latency [ms] between sending and executing actions.
-    
-    Both of sent_actions and exec_actions should have this structure:
-    - timestamp: 
-        - joint name: calibrated normalized state
-
-    :param sent_actions: the time - action pairs when sent to robot
-    :param exec_actions: the time - action pairs when truly executed on robot
-    """
-    return -1
-
 
 def main():
     
@@ -257,8 +243,9 @@ def main():
     # to receive simulated joint state as input
     obs_context = zmq.Context()
     obs_socket = obs_context.socket(zmq.SUB)
-    obs_socket.connect(INPUT_OBSERVATION_SOCKET)
+    obs_socket.setsockopt(zmq.CONFLATE, 1) # queue size is 1, new msg overwrites old msg
     obs_socket.setsockopt(zmq.SUBSCRIBE, b"")
+    obs_socket.connect(INPUT_OBSERVATION_SOCKET)
 
     # to send out the proposed action chunk
     act_context = zmq.Context()
@@ -345,10 +332,8 @@ def main():
 
         send_action_thread.start()
         if args.sim:
-            time.sleep(0.5)
             record_sim_action_thread.start()
         if args.real:
-            time.sleep(0.5)
             record_real_action_thread.start()
 
         send_action_thread.join()
@@ -366,31 +351,34 @@ def main():
         sim_latency = None
         if args.sim:
             sim_latency = compute_latency(
-                sent_actions=record["send_sim"],
-                exec_actions=record["exec_sim"],
+                reference_actions=record["send_sim"],
+                target_actions=record["exec_sim"],
+                percentage=(0.1,0.9),
             )
 
         real_latency = None
         if args.real:
             real_latency = compute_latency(
-                sent_actions=record["send_real"],
-                exec_actions=record["exec_real"],
+                reference_actions=record["send_real"],
+                target_actions=record["exec_real"],
+                percentage=(0.1,0.9),
             )
 
         sim2real_latency = None
         if args.sim and args.real:
             sim2real_latency = compute_latency(
                 # TODO: maybe update the arg names with action1 and action2?
-                sent_actions=record["exec_sim"],
-                exec_actions=record["exec_real"],
+                reference_actions=record["exec_sim"],
+                target_actions=record["exec_real"],
+                percentage=(0.1,0.9),
             )
+
         logging.info(
-            f"real_latency: {real_latency} \n"
-            f"sim_latency: {sim_latency} \n"
-            f"sim2real_latency: {sim2real_latency} \n"
+            f"real_latency: {real_latency * 1000:.1f} ms \n"
+            f"sim_latency: {sim_latency * 1000:.1f} ms \n"
+            f"sim2real_latency: {sim2real_latency * 1000:.1f} ms \n"
         )
         
-
     finally:
         if robot.is_connected:
             robot.disconnect()

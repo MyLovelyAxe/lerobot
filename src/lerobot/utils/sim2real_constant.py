@@ -1,3 +1,10 @@
+from pathlib import Path
+
+###### Paths ######
+
+LOG_FOLDER = Path(__file__).resolve().parent.parent.parent.parent / "examples/tutorial/smolvla/logs"
+
+
 ###### Constants ######
 
 SO101_FOLLOWER_NEW_CALIB = "so101_follower_new_calib"
