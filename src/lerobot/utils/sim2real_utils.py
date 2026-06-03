@@ -146,7 +146,7 @@ def joint_state_rad2pos(
     :param calibration: calibration method
     """
     rad_joint_state = {
-        joint: rad2pos(rad=rad_joint_state[idx], joint_name=joint, calibration=calibration) for idx, joint in enumerate(JOINT_ORDER)
+        joint: float(rad2pos(rad=rad_joint_state[idx], joint_name=joint, calibration=calibration)) for idx, joint in enumerate(JOINT_ORDER)
     }
 
     return rad_joint_state

@@ -44,6 +44,9 @@ from lerobot.utils.sim2real_utils import (
     joint_state_pos2rad,
     joint_state_rad2pos,
 )
+from lerobot.utils.sim2real_debug import (
+    print_record,
+)
 
 
 LOG_SECONDS = 5.0
@@ -55,10 +58,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sim",
         action="store_true",
+        default=False,
         help="Send target pose to simulation. Without this flag, the script only logs joint positions.",
     )
     parser.add_argument(
         "--real",
+        default=True,
         action="store_true",
         help="Send target pose to real robot. Without this flag, the script only logs joint positions.",
     )
