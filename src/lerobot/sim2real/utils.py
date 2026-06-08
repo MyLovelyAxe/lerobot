@@ -1,3 +1,6 @@
+import io
+import time
+import zmq
 import numpy as np
 import time
 from typing import Dict, List, Tuple
@@ -297,3 +300,23 @@ def compute_latency(
     best_idx = np.argmin(errors)
 
     return lags[best_idx]
+
+
+def get_rad_joint_state_from_socket(
+    obs_socket: zmq.SyncSocket,
+) -> Dict[str, float]:
+    """Extract the joint state in radian from socket and convert to calibrated normalized format.
+    
+    :param obs_socket: the socket to read the current joint states of simulated robot
+    """
+
+    payload = obs_socket.recv()   # one npz blob
+    buf = io.BytesIO(payload)
+    data = np.load(buf)
+    # NOTE: this is a list of joint state values, needs to convert
+    joint_state_rad = data["joints"].astype(np.float32)
+    joint_state = joint_state_rad2pos(
+        rad_joint_state=joint_state_rad,
+        calibration=SO101_FOLLOWER_NEW_CALIB,
+    )
+    return joint_state
