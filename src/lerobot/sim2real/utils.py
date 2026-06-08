@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.utils.robot_utils import precise_sleep
 
-from lerobot.utils.sim2real_constant import (
+from lerobot.sim2real.constant import (
     HOME_MOVE_HZ,
     HOME_SPEED,
     HOME_TOL,

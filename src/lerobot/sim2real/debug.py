@@ -2,7 +2,7 @@ from typing import Dict
 from pathlib import Path
 import matplotlib.pyplot as plt
 import time
-from lerobot.utils.sim2real_constant import (
+from lerobot.sim2real.constant import (
     LOG_FOLDER,
     JOINT_ORDER,
 )

@@ -26,7 +26,7 @@ from typing import Dict, List, Tuple
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.utils.robot_utils import precise_sleep
-from lerobot.utils.sim2real_utils import (
+from lerobot.sim2real.utils import (
     generate_robot_actions_trajectory,
     log_joint_state,
     compute_latency,
@@ -367,7 +367,6 @@ def main():
         sim2real_latency = None
         if args.sim and args.real:
             sim2real_latency = compute_latency(
-                # TODO: maybe update the arg names with action1 and action2?
                 reference_actions=record["exec_sim"],
                 target_actions=record["exec_real"],
                 percentage=(0.1,0.9),
