@@ -25,17 +25,18 @@ def move_robot_to_target_pose(
     target_pose: Dict[str, float],
     reverse_order: bool = False,
 ):
-    """TODO: docstring"""
+    """Move the real robot to given target pose by moving joints one by one.
+    
+    :param robot: the robot class of the hardware robot
+    :param target_pose: the final pose the robot will reach
+    :param reverse_order: False, move from 1st joint to the last joint, True, inverse
+    """
+
     action = {
         k: v
         for k, v in robot.get_observation().items()
         if k.endswith(".pos")
     }
-
-    # TODO: set a lower acceleration, this code might not be correct
-    # for motor in robot.bus.motors:
-    #     robot.bus.write("Acceleration", motor, 254)
-
     joint_order = JOINT_ORDER.copy()
     if reverse_order:
         joint_order.reverse()
@@ -96,8 +97,6 @@ def rad2pos(
         # norm = (((bounded_val - min_) / (max_ - min_)) * 200) - 100
         pos = ((rad - sim_min) / (sim_max - sim_min)) * 200 - 100
 
-    # # TODO: this gives a larger gripper joint value, even though it should use MotorNormMode.RANGE_0_100
-    # pos = ((rad - sim_min) / (sim_max - sim_min)) * 200 - 100
     return pos
 
 
@@ -118,8 +117,6 @@ def pos2rad(
         # unnormalized_values[id_] = int(((bounded_val + 100) / 200) * (max_ - min_) + min_)
         rad = (pos + 100) / 200 * (sim_max - sim_min) + sim_min
     
-    # # TODO: use correct version for gripper later
-    # rad = (pos + 100) / 200 * (sim_max - sim_min) + sim_min
     return rad
 
 
@@ -213,10 +210,14 @@ def generate_robot_actions_trajectory(
 
 
 def crop_by_time_percentage(
-    times, 
-    percentage,
+    times: np.ndarray, 
+    percentage: Tuple[float, float] = (0.0, 1.0),
 ):
-    """TODO: docstring"""
+    """Crop all the timestamps according to desired percentage.
+    
+    :param times: all the raw timestamps
+    :param percentage: how many timestamps are kept
+    """
     times = np.array(sorted(times))
     t0 = times[0]
     t1 = times[-1]
@@ -240,6 +241,9 @@ def compute_latency(
 
     :param reference_actions: the time - action pairs when sent to robot
     :param target_actions: the time - action pairs when truly executed on robot
+    :param lag_range: the range to search for the most aligned latency lagging
+    :param lag_step: the resolution of researching space of latency lagging
+    :param percentage: to crop the timestamps for both reference and target actions
     """
 
     # Sort timestamps
@@ -247,8 +251,8 @@ def compute_latency(
     target_times_all = np.array(sorted(target_actions.keys()))
 
     # Crop each trajectory by its own time duration, not by shared index.
-    t_ref = crop_by_time_percentage(ref_times_all, percentage)
-    t_target = crop_by_time_percentage(target_times_all, percentage)
+    t_ref = crop_by_time_percentage(times=ref_times_all, percentage=percentage)
+    t_target = crop_by_time_percentage(times=target_times_all, percentage=percentage)
     q_ref = np.array([
         [reference_actions[t][j] for j in JOINT_ORDER]
         for t in t_ref

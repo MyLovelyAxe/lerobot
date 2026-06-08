@@ -18,7 +18,7 @@ import torch
 import time
 from PIL import Image
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -41,8 +41,8 @@ from lerobot.sim2real.constant import (
 from lerobot.sim2real.utils import (
     move_robot_to_target_pose,
     log_joint_state,
-    rad2pos,
-    pos2rad,
+    joint_state_rad2pos,
+    joint_state_pos2rad,
 )
 
 
@@ -231,41 +231,15 @@ if __name__ == "__main__":
             # convert img into RGB
             img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
 
-            # The expected obs should have this structure:
-            # {
-            #   "shoulder_pan.pos": joint_value,
-            #   "shoulder_lift.pos": joint_value,
-            #   "elbow_flex.pos": joint_value,
-            #   "wrist_flex.pos": joint_value,
-            #   "wrist_roll.pos": joint_value,
-            #   "gripper.pos": joint_value,
-            #   "camera1": cv2.RGB image with shape h, w, c, no rotation
-            #   "camera2": cv2.RGB image with shape h, w, c, no rotation
-            # }
+            # joint state
+            obs = joint_state_rad2pos(
+                rad_joint_state=joints,
+                calibration=SO101_FOLLOWER_NEW_CALIB,
+            )
+            obs["camera1"] = img1
+            obs["camera2"] = img2
 
-            # the joint states in obs should be normalized as relative position,
-            # i.e. in range [-100, 100] for body joints or [0, 100] for gripper
-
-            obs = {
-                "shoulder_pan.pos": rad2pos(rad=joints[0], joint_name="shoulder_pan.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                "shoulder_lift.pos": rad2pos(rad=joints[1], joint_name="shoulder_lift.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                "elbow_flex.pos": rad2pos(rad=joints[2], joint_name="elbow_flex.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                "wrist_flex.pos": rad2pos(rad=joints[3], joint_name="wrist_flex.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                "wrist_roll.pos": rad2pos(rad=joints[4], joint_name="wrist_roll.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                "gripper.pos": rad2pos(rad=joints[5], joint_name="gripper.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                "camera1": img1,
-                "camera2": img2,
-            }
-
-            # TODO: check what viewpoint angle and distance to robot (i.e. pose) should the camera have
-
-            # the built obs_frame would have such structure:
-            # {
-            #   "observation.state": torch.Tensor with shape [1, 6]
-            #   "observation.images.camera1": torch.Tensor of image batch with shape [1, c, h, w]
-            #   "task": task string same as input,
-            #   "robot_type": robot_type string same as input,
-            # }
+            # build frame
             obs_frame = build_inference_frame(
                 observation=obs, 
                 ds_features=DATASET_FEATURES, 
@@ -273,7 +247,6 @@ if __name__ == "__main__":
                 task=args.task, 
                 robot_type=args.robot,
             )
-
             obs = preprocess(obs_frame)
 
             # save images in obs
@@ -308,33 +281,19 @@ if __name__ == "__main__":
                 )
 
             ### send action
-
             action = model.select_action(obs)
             action = postprocess(action)
-
-            # the returned action would have such structure:
-            # {
-            #     'shoulder_pan.pos': abs_target_value,
-            #     'shoulder_lift.pos': abs_target_value,
-            #     'elbow_flex.pos': abs_target_value,
-            #     'wrist_flex.pos': abs_target_value, 
-            #     'wrist_roll.pos': abs_target_value, 
-            #     'gripper.pos': abs_target_value, 
-            # }
             raw_action = make_robot_action(action, DATASET_FEATURES)
             if count % args.log_hz == 0:
                 log_joint_state(
                     joint_state=raw_action,
                     logging_label="Raw actions from model (calibrated position)",
                 )
-
             if args.record_actions:
                 recorded_actions[count] = raw_action
 
             # send the actions to real robot
-            # TODO: it seems the pre-trained smolvla base model outputs action in so101 norm range, instead of so101_new_calib range
             if args.send_action:
-
                 real_action = robot.send_action(raw_action)
                 if count % args.log_hz == 0:
                     log_joint_state(
@@ -346,21 +305,15 @@ if __name__ == "__main__":
 
 
             # send the actions to simulated robot
-            # TODO: replace with joint_state_pos2rad and verify
-            sim_action = np.array([
-                pos2rad(pos=raw_action["shoulder_pan.pos"], joint_name="shoulder_pan.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                pos2rad(pos=raw_action["shoulder_lift.pos"], joint_name="shoulder_lift.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                pos2rad(pos=raw_action["elbow_flex.pos"], joint_name="elbow_flex.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                pos2rad(pos=raw_action["wrist_flex.pos"], joint_name="wrist_flex.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                pos2rad(pos=raw_action["wrist_roll.pos"], joint_name="wrist_roll.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-                pos2rad(pos=raw_action["gripper.pos"], joint_name="gripper.pos", calibration=SO101_FOLLOWER_NEW_CALIB),
-            ],dtype=np.float32)
-
+            sim_action = joint_state_pos2rad(
+                pos_joint_state=raw_action,
+                calibration=SO101_FOLLOWER_NEW_CALIB,
+            )
             if count % args.log_hz == 0:
                 print_action = ', '.join(f"{value:2f}" for value in sim_action.tolist())
                 logging.info(f"Actions sent to simulated robot (radian): [{print_action}]")
-
             print()
+
             # send actions to zmq socket
             act_socket.send(sim_action.tobytes())
 
