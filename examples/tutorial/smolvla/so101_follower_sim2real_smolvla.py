@@ -70,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--send-action",
+        default=False,
         action="store_true",
         help="Send the returned action from policy to real robot. " \
         "Without this flag, the script only logs the returned actions " \
