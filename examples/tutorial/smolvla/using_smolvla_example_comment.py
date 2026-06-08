@@ -24,28 +24,24 @@ def main():
         preprocessor_overrides={"device_processor": {"device": str(device)}},
     )
 
-    # TODO: unnecessary
     # find ports using lerobot-find-port
     follower_port = "/dev/tty.usbmodem58760431631"  # something like "/dev/tty.usbmodem58760431631"
 
-    # TODO: unnecessary
     # the robot ids are used the load the right calibration files
     follower_id = "follower_so100_test"  # something like "follower_so100"
 
     # Robot and environment configuration
     # Camera keys must match the name and resolutions of the ones used for training!
     # You can check the camera keys expected by a model in the info.json card on the model card on the Hub
-    camera_config = { # TODO: unnecessary
-        # TODO: this is the required shape of input image, set it in Isaac Sim camera model later
+    camera_config = {
         # camera_config = {'camera1': OpenCVCameraConfig(fps=30, width=640, height=480, index_or_path=0, color_mode=<ColorMode.RGB: 'rgb'>, rotation=<Cv2Rotation.NO_ROTATION: 0>, warmup_s=1, fourcc=None)}
         "camera1": OpenCVCameraConfig(index_or_path=0, width=640, height=480, fps=30),
-        # TODO: if camera2 is also used
-        # "camera2": OpenCVCameraConfig(index_or_path=1, width=640, height=480, fps=30),
+        "camera2": OpenCVCameraConfig(index_or_path=1, width=640, height=480, fps=30),
     }
     
-    robot_cfg = SO100FollowerConfig(port=follower_port, id=follower_id, cameras=camera_config) # TODO: unnecessary
-    robot = SO100Follower(robot_cfg) # TODO: unnecessary
-    robot.connect() # TODO: unnecessary
+    robot_cfg = SO100FollowerConfig(port=follower_port, id=follower_id, cameras=camera_config)
+    robot = SO100Follower(robot_cfg)
+    robot.connect()
 
     task = "pick the red block"  # something like 
     robot_type = "so100_follower"  # something like "so100_follower" for multi-embodiment datasets
@@ -67,7 +63,6 @@ def main():
     #       'names': ['shoulder_pan.pos', 'shoulder_lift.pos', 'elbow_flex.pos', 'wrist_flex.pos', 'wrist_roll.pos', 'gripper.pos']
     #       ),
     #   )
-    # TODO: directly create this action_features, hw_to_dataset_features unnecessary
     action_features = hw_to_dataset_features(robot.action_features, "action")
     
     # robot.observation_features = robot.action_features + robot._cameras_ft
@@ -95,7 +90,6 @@ def main():
     #       'names': ['height', 'width', 'channels'],
     #       ),
     #   )
-    # TODO: directly create this obs_features, hw_to_dataset_features unnecessary
     obs_features = hw_to_dataset_features(robot.observation_features, "observation")
     
     # just combine 2 dict
@@ -135,12 +129,6 @@ def main():
             #   self.videocapture = cv2.VideoCapture()
             #   ret, frame = self.videocapture.read()
             #   processed_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # TODO: replace this get_obserrobot.get_observation()vation with:
-            #   - subscribe to a zmq socket (ros2 topic /joint_states)
-            #   - subscribe to a zmq socket (ros2 topic /camera1_rgb)
-            #   - construct the subscribed info into the above dict structure
-            # TODO: check if 2 cameras is the upper limit
-            # TODO: check what viewpoint angle and distance to robot (i.e. pose) should the camera have
             obs = robot.get_observation()
 
             # obs_frame = dict(
@@ -158,9 +146,7 @@ def main():
             action = model.select_action(obs)
             action = postprocess(action)
             action = make_robot_action(action, dataset_features)
-            # TODO: replace robot.send_action() with:
-            #   - publish to a zmq socket (ros2 topic /joint_command from Isaa Sim, give target state)
-            robot.send_action(action) # TODO: unnecessary
+            robot.send_action(action)
 
         print("Episode finished! Starting new episode...")
 
