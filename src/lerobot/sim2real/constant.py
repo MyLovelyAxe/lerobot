@@ -63,7 +63,7 @@ RETURN_JOINT_STATE = {
     SO101_FOLLOWER_NEW_CALIB: {
         'shoulder_pan.pos': -4.0,
         'shoulder_lift.pos': -99.0,
-        'elbow_flex.pos': 98.0,
+        'elbow_flex.pos': 92.0, # TODO: in isaac sim, this joint actually can't achieve calib_norm_joint=100, it will collide at around 92
         'wrist_flex.pos': -80.0,
         'wrist_roll.pos': -55.0,
         'gripper.pos': 0.0,
@@ -153,7 +153,11 @@ SIMULATION_RANGE = {
     SO101_FOLLOWER_NEW_CALIB: {
         'shoulder_pan.pos'  : {'sim_min': -1.92,    'sim_max': 1.92 },
         'shoulder_lift.pos' : {'sim_min': -1.75,    'sim_max': 1.75 },
-        'elbow_flex.pos'    : {'sim_min': -1.69,    'sim_max': 1.69 },
+        # NOTE: original so101_new_calib usd in isaac sim has colloision at max and min pos for this joint
+        # original:
+        # 'elbow_flex.pos'    : {'sim_min': -1.69,    'sim_max': 1.69 },
+        # update:
+        'elbow_flex.pos'    : {'sim_min': -1.61,    'sim_max': 1.61 },
         'wrist_flex.pos'    : {'sim_min': -1.66,    'sim_max': 1.66 },
         'wrist_roll.pos'    : {'sim_min': -2.74,    'sim_max': 2.84 },
         'gripper.pos'       : {'sim_min': -0.17,    'sim_max': 1.74 },
