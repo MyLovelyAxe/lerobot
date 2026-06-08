@@ -31,7 +31,7 @@ from lerobot.utils.sim2real_utils import (
     log_joint_state,
     compute_latency,
 )
-from lerobot.utils.sim2real_constant import (
+from lerobot.sim2real.constant import (
     JOINT_ORDER,
     INPUT_OBSERVATION_SOCKET,
     OUTPUT_ACTION_SOCKET,
@@ -39,13 +39,13 @@ from lerobot.utils.sim2real_constant import (
     RETURN_JOINT_STATE,
     SO101_FOLLOWER_NEW_CALIB,
 )
-from lerobot.utils.sim2real_utils import (
+from lerobot.sim2real.utils import (
     move_robot_to_target_pose,
     log_joint_state,
     joint_state_pos2rad,
     joint_state_rad2pos,
 )
-from lerobot.utils.sim2real_debug import (
+from lerobot.sim2real.debug import (
     print_record,
     plot_joint_lines_in_record,
 )

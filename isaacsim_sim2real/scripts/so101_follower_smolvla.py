@@ -27,7 +27,7 @@ from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.policies.utils import build_inference_frame, make_robot_action
-from lerobot.utils.sim2real_constant import (
+from lerobot.sim2real.constant import (
     INPUT_OBSERVATION_SOCKET,
     OUTPUT_ACTION_SOCKET,
     EMPTY_SIGNAL_SOCKET,
@@ -38,7 +38,7 @@ from lerobot.utils.sim2real_constant import (
     SO101_FOLLOWER_NEW_CALIB,
     HOME_JOINT_STATE,
 )
-from lerobot.utils.sim2real_utils import (
+from lerobot.sim2real.utils import (
     move_robot_to_target_pose,
     log_joint_state,
     rad2pos,
@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot",
         type=str,
-        default="so100_follower", # TODO: check if this should be so101_follower, what difference does it make
+        default="so101_follower",
         help="The robot type",
     )
     parser.add_argument(
