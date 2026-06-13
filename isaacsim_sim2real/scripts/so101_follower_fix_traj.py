@@ -57,12 +57,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sim",
         action="store_true",
-        default=True,
+        default=False,
         help="Send target pose to simulation. Without this flag, the script only logs joint positions.",
     )
     parser.add_argument(
         "--real",
-        default=True,
+        default=False,
         action="store_true",
         help="Send target pose to real robot. Without this flag, the script only logs joint positions.",
     )
@@ -208,6 +208,7 @@ def main():
                 target_actions=record["exec_sim"],
                 percentage=(0.1,0.9),
             )
+            logging.info(f"sim_latency: {sim_latency * 1000:.1f} ms")
 
         real_latency = None
         if args.real:
@@ -216,6 +217,7 @@ def main():
                 target_actions=record["exec_real"],
                 percentage=(0.1,0.9),
             )
+            logging.info(f"real_latency: {real_latency * 1000:.1f} ms")
 
         sim2real_latency = None
         if args.sim and args.real:
@@ -224,12 +226,8 @@ def main():
                 target_actions=record["exec_real"],
                 percentage=(0.1,0.9),
             )
+            logging.info(f"sim2real_latency: {sim2real_latency * 1000:.1f} ms")
 
-        logging.info(
-            f"real_latency: {real_latency * 1000:.1f} ms \n"
-            f"sim_latency: {sim_latency * 1000:.1f} ms \n"
-            f"sim2real_latency: {sim2real_latency * 1000:.1f} ms \n"
-        )
         
     finally:
         if robot.is_connected:
