@@ -7,6 +7,8 @@ LOG_FOLDER = Path(__file__).resolve().parent.parent.parent.parent / "isaacsim_si
 
 ###### Constants ######
 
+SO101_NEW_CALIB = "so101_new_calib"
+SO101_OLD_CALIB = "so101_old_calib"
 SO101_FOLLOWER_NEW_CALIB = "so101_follower_new_calib"
 SO101_FOLLOWER_OLD_CALIB = "so101_follower_old_calib"
 SO101_LEADER_NEW_CALIB = "so101_leader_new_calib"
@@ -39,7 +41,7 @@ JOINT_ORDER = [
 
 # Before starting inference
 HOME_JOINT_STATE = {
-    SO101_FOLLOWER_OLD_CALIB: {
+    SO101_OLD_CALIB: {
         'shoulder_pan.pos': 0.0,
         'shoulder_lift.pos': 0.0,
         'elbow_flex.pos': 0.0,
@@ -47,7 +49,7 @@ HOME_JOINT_STATE = {
         'wrist_roll.pos': 0.0,
         'gripper.pos': 0.0,
     },
-    SO101_FOLLOWER_NEW_CALIB: {
+    SO101_NEW_CALIB: {
         'shoulder_pan.pos': 0.0,
         'shoulder_lift.pos': 0.0,
         'elbow_flex.pos': 0.0,
@@ -59,8 +61,8 @@ HOME_JOINT_STATE = {
 
 # After finishing inference and shut down the robot
 RETURN_JOINT_STATE = {
-    SO101_FOLLOWER_OLD_CALIB: dict(), # TODO
-    SO101_FOLLOWER_NEW_CALIB: {
+    SO101_OLD_CALIB: dict(), # TODO
+    SO101_NEW_CALIB: {
         'shoulder_pan.pos': -4.0,
         'shoulder_lift.pos': -99.0,
         'elbow_flex.pos': 98.0,
@@ -142,7 +144,7 @@ DATASET_FEATURES = {**ACTION_FEATURES, **OBS_FEATURES}
 
 # radian range of so100 joints in Isaac Sim
 SIMULATION_RANGE = {
-    SO101_FOLLOWER_OLD_CALIB: {
+    SO101_OLD_CALIB: {
         'shoulder_pan.pos'  : {'sim_min': -2.0,     'sim_max': 2.0  },
         'shoulder_lift.pos' : {'sim_min': 0.0,      'sim_max': 3.5  },
         'elbow_flex.pos'    : {'sim_min': -3.142,   'sim_max': 0.0  },
@@ -150,7 +152,7 @@ SIMULATION_RANGE = {
         'wrist_roll.pos'    : {'sim_min': -3.142,   'sim_max': 3.142},
         'gripper.pos'       : {'sim_min': -0.2,     'sim_max': 2.0  },
     },
-    SO101_FOLLOWER_NEW_CALIB: {
+    SO101_NEW_CALIB: {
         'shoulder_pan.pos'  : {'sim_min': -1.92,    'sim_max': 1.92 },
         'shoulder_lift.pos' : {'sim_min': -1.75,    'sim_max': 1.75 },
         # NOTE: original so101_new_calib usd in isaac sim has colloision at max and min pos for this joint

@@ -36,6 +36,7 @@ from lerobot.sim2real.constant import (
     MODEL_ID,
     RETURN_JOINT_STATE,
     SO101_FOLLOWER_NEW_CALIB,
+    SO101_NEW_CALIB,
     HOME_JOINT_STATE,
 )
 from lerobot.sim2real.utils import (
@@ -172,7 +173,7 @@ if __name__ == "__main__":
             )
             move_robot_to_target_pose(
                 robot=robot, 
-                target_pose=HOME_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB],
+                target_pose=HOME_JOINT_STATE[SO101_NEW_CALIB],
                 reverse_order=True,
             )
             logging.info(f"Robot returns to home, wait for 3 seconds......")
@@ -234,7 +235,7 @@ if __name__ == "__main__":
             # joint state
             obs = joint_state_rad2pos(
                 rad_joint_state=joints,
-                calibration=SO101_FOLLOWER_NEW_CALIB,
+                calibration=SO101_NEW_CALIB,
             )
             obs["camera1"] = img1
             obs["camera2"] = img2
@@ -307,7 +308,7 @@ if __name__ == "__main__":
             # send the actions to simulated robot
             sim_action = joint_state_pos2rad(
                 pos_joint_state=raw_action,
-                calibration=SO101_FOLLOWER_NEW_CALIB,
+                calibration=SO101_NEW_CALIB,
             )
             if count % args.log_hz == 0:
                 print_action = ', '.join(f"{value:2f}" for value in sim_action.tolist())
@@ -343,7 +344,7 @@ if __name__ == "__main__":
                     # move the robot to return pose
                     move_robot_to_target_pose(
                         robot=robot, 
-                        target_pose=RETURN_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB],
+                        target_pose=RETURN_JOINT_STATE[SO101_NEW_CALIB],
                         reverse_order=False,
                     )
                     robot.disconnect()

@@ -20,7 +20,7 @@ from lerobot.sim2real.constant import (
     HOME_TOL,
     JOINT_ORDER,
     SIMULATION_RANGE,
-    SO101_FOLLOWER_NEW_CALIB,
+    SO101_NEW_CALIB,
 )
 
 
@@ -114,7 +114,7 @@ def log_joint_state(
 def rad2pos(
     rad: float, 
     joint_name: str, 
-    calibration: str = SO101_FOLLOWER_NEW_CALIB,
+    calibration: str = SO101_NEW_CALIB,
 ):
     """Convert radians into motor pos.
     
@@ -140,7 +140,7 @@ def rad2pos(
 def pos2rad(
     pos: float, 
     joint_name: str, 
-    calibration: str = SO101_FOLLOWER_NEW_CALIB,
+    calibration: str = SO101_NEW_CALIB,
 ):
     """Convert the noramlized motor pos into real radian."""
 
@@ -159,7 +159,7 @@ def pos2rad(
 
 def joint_state_pos2rad(
     pos_joint_state: Dict[str, float],
-    calibration: str = SO101_FOLLOWER_NEW_CALIB,
+    calibration: str = SO101_NEW_CALIB,
 ) -> np.ndarray:
     """ Convert calibrated normalized joint state into radian for all joints.
     
@@ -174,7 +174,7 @@ def joint_state_pos2rad(
 
 def joint_state_rad2pos(
     rad_joint_state: np.ndarray,
-    calibration: str = SO101_FOLLOWER_NEW_CALIB,
+    calibration: str = SO101_NEW_CALIB,
 ) -> Dict[str, float]:
     """ Convert calibrated normalized joint state into radian for all joints.
     
@@ -358,6 +358,6 @@ def get_rad_joint_state_from_socket(
     joint_state_rad = data["joints"].astype(np.float32)
     joint_state = joint_state_rad2pos(
         rad_joint_state=joint_state_rad,
-        calibration=SO101_FOLLOWER_NEW_CALIB,
+        calibration=SO101_NEW_CALIB,
     )
     return joint_state

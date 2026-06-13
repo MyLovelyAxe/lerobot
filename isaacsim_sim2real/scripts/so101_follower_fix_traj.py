@@ -34,6 +34,7 @@ from lerobot.sim2real.constant import (
     SO101_FOLLOWER_PORT_ID,
     RETURN_JOINT_STATE,
     SO101_FOLLOWER_NEW_CALIB,
+    SO101_NEW_CALIB,
 )
 from lerobot.sim2real.thread import (
     reset_sim_robot_worker,
@@ -112,7 +113,7 @@ def main():
     act_socket.bind(OUTPUT_ACTION_SOCKET)
     time.sleep(0.5) # Give subscribers a short time to connect
 
-    initial_pose = RETURN_JOINT_STATE[SO101_FOLLOWER_NEW_CALIB]
+    initial_pose = RETURN_JOINT_STATE[SO101_NEW_CALIB]
 
     target_pose = {
         'shoulder_pan.pos': -50.0,

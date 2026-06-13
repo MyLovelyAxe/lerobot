@@ -12,7 +12,7 @@ from lerobot.utils.robot_utils import precise_sleep
 from lerobot.sim2real.utils import log_joint_state
 from lerobot.sim2real.constant import (
     JOINT_ORDER,
-    SO101_FOLLOWER_NEW_CALIB,
+    SO101_NEW_CALIB,
     HOME_TOL,
 )
 from lerobot.sim2real.utils import (
@@ -42,7 +42,7 @@ def reset_sim_robot_worker(
     # send action for simulated robot to execute
     sim_action = joint_state_pos2rad(
         pos_joint_state=initial_pose,
-        calibration=SO101_FOLLOWER_NEW_CALIB,
+        calibration=SO101_NEW_CALIB,
     )
     action_socket.send(sim_action.tobytes())
     logging.info(f"Move simulated robot to initial pose......")
@@ -133,7 +133,7 @@ def send_action_worker(
             if sim:
                 sent_sim_action = joint_state_pos2rad(
                     pos_joint_state=curr_action,
-                    calibration=SO101_FOLLOWER_NEW_CALIB,
+                    calibration=SO101_NEW_CALIB,
                 )
                 send_sim_time = time.perf_counter()
                 action_socket.send(sent_sim_action.tobytes())
