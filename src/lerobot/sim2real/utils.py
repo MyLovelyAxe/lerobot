@@ -3,13 +3,16 @@ import time
 import zmq
 import numpy as np
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Union, Any
+from types import MethodType
 import logging
 logging.basicConfig(level=logging.INFO)
 
 from scipy.interpolate import interp1d
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
+from lerobot.teleoperators.so101_leader.so101_leader import SO101Leader
 from lerobot.utils.robot_utils import precise_sleep
+from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from lerobot.sim2real.constant import (
     HOME_MOVE_HZ,
@@ -20,8 +23,30 @@ from lerobot.sim2real.constant import (
     SO101_FOLLOWER_NEW_CALIB,
 )
 
+
+def add_send_action_leader(
+    robot: SO101Leader,
+) -> SO101Leader:
+    """Temporarily add a send_action() method to a so101 leader object."""
+
+    def send_action(
+        self: SO101Leader, 
+        action: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send action to a leader arm."""
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+        goal_pos = {key.removesuffix(".pos"): val for key, val in action.items() if key.endswith(".pos")}
+        # Send goal position to the arm
+        self.bus.sync_write("Goal_Position", goal_pos)
+        return {f"{motor}.pos": val for motor, val in goal_pos.items()}
+
+    robot.send_action = MethodType(send_action, robot)
+    return robot
+
+
 def move_robot_to_target_pose(
-    robot: SO101Follower, 
+    robot: Union[SO101Follower, SO101Leader], 
     target_pose: Dict[str, float],
     reverse_order: bool = False,
 ):
@@ -31,12 +56,24 @@ def move_robot_to_target_pose(
     :param target_pose: the final pose the robot will reach
     :param reverse_order: False, move from 1st joint to the last joint, True, inverse
     """
+    # if the robot is a leader, temporarily add a .send_action() to it
+    if isinstance(robot, SO101Leader) and not hasattr(robot, 'send_action'):
+        robot = add_send_action_leader(robot=robot)
 
-    action = {
-        k: v
-        for k, v in robot.get_observation().items()
-        if k.endswith(".pos")
-    }
+    # decide the method to get the current state of robot
+    if isinstance(robot, SO101Leader):
+        curr_pose = {
+            k: v
+            for k, v in robot.get_action().items()
+            if k.endswith(".pos")
+        }
+    elif isinstance(robot, SO101Follower):
+        curr_pose = {
+            k: v
+            for k, v in robot.get_observation().items()
+            if k.endswith(".pos")
+        }
+
     joint_order = JOINT_ORDER.copy()
     if reverse_order:
         joint_order.reverse()
@@ -50,15 +87,15 @@ def move_robot_to_target_pose(
         while True:
             loop_start = time.perf_counter()
 
-            diff = target_pose[joint_name] - action[joint_name]
+            diff = target_pose[joint_name] - curr_pose[joint_name]
             if abs(diff) <= HOME_TOL:
-                action[joint_name] = target_pose[joint_name]
-                robot.send_action(action)
+                curr_pose[joint_name] = target_pose[joint_name]
+                robot.send_action(curr_pose)
                 break
 
             step = max(-max_step, min(max_step, diff))
-            action[joint_name] += step
-            robot.send_action(action)
+            curr_pose[joint_name] += step
+            robot.send_action(curr_pose)
 
             precise_sleep(dt - (time.perf_counter() - loop_start))
 

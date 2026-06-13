@@ -5,8 +5,9 @@ import zmq
 import logging
 logging.basicConfig(level=logging.INFO)
 
-from typing import Dict, List
+from typing import Dict, List, Union
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
+from lerobot.teleoperators.so101_leader.so101_leader import SO101Leader
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.sim2real.utils import log_joint_state
 from lerobot.sim2real.constant import (
@@ -16,6 +17,8 @@ from lerobot.sim2real.constant import (
 )
 from lerobot.sim2real.utils import (
     move_robot_to_target_pose,
+    # move_leader_to_target_pose,
+    add_send_action_leader,
     log_joint_state,
     joint_state_pos2rad,
     get_rad_joint_state_from_socket,
@@ -62,7 +65,7 @@ def reset_sim_robot_worker(
 
 def reset_real_robot_worker(
     initial_pose: Dict[str, float],
-    robot: SO101Follower,
+    robot: Union[SO101Follower, SO101Leader],
 ):
     """The thread to move the real robot to initial pose.
 
@@ -74,8 +77,6 @@ def reset_real_robot_worker(
         target_pose=initial_pose,
         reverse_order=True,
     )
-    # logging.info(f"Robot returns to home, wait for 2 seconds......")
-    # time.sleep(2)
     logging.info(f"Real robot is ready to go")
 
 
@@ -86,7 +87,7 @@ def send_action_worker(
     dt: float,
     all_action_trajectories: List[List[Dict[str, float]]],
     action_socket: zmq.SyncSocket,
-    robot: SO101Follower,
+    robot: Union[SO101Follower, SO101Leader],
     sim: bool = True,
     real: bool = True,
     verbose: bool = False,
@@ -104,6 +105,10 @@ def send_action_worker(
     :param real: whether sent to real robot
     :param verbose: whether log the process
     """
+    # if the robot is a leader, temporarily add a .send_action() to it
+    if isinstance(robot, SO101Leader) and not hasattr(robot, 'send_action'):
+        robot = add_send_action_leader(robot=robot)
+
     logging.info("Thread send_action_worker begins.")
 
     # NOTE: only record calibrated normalized actions
@@ -183,7 +188,7 @@ def record_real_joint_state_worker(
     robot_lock: threading.Lock,
     record: queue.Queue,
     dt: float,
-    robot: SO101Follower,
+    robot: Union[SO101Follower, SO101Leader],
 ):
     """The thread to real current joint states of real robot.
 
@@ -201,7 +206,10 @@ def record_real_joint_state_worker(
     while not send_action_finish.is_set():
         with robot_lock:
             record_real_time = time.perf_counter()
-            real_joint_state = robot.get_observation()
+            if isinstance(robot, SO101Follower):
+                real_joint_state = robot.get_observation()
+            if isinstance(robot, SO101Leader):
+                real_joint_state = robot.get_action()
         latency_info["exec_real"][record_real_time] = real_joint_state
         precise_sleep(dt - (time.perf_counter() - record_real_time))
 
