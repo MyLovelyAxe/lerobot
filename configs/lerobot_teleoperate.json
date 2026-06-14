@@ -1,0 +1,13 @@
+{
+  "robot": {
+    "type": "so101_follower",
+    "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF218449-if00",
+    "id": "so101_follower_new_calib"
+  },
+  "teleop": {
+    "type": "so101_leader",
+    "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF219896-if00",
+    "id": "so101_leader_new_calib"
+  },
+  "display_data": false
+}

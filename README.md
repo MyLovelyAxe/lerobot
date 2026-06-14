@@ -105,6 +105,57 @@ python3 smolvla_zmq.py
 
 ---
 
+## Commands
+
+Here are the commands to call Lerobot CLI tools with the specific setup of this project.
+
+#### Teleoperate
+
+Call with a config file:
+
+```bash
+conda activate smolvla
+cd ~/lerobot
+lerobot-teleoperate --config_path=configs/lerobot_teleoperate.json
+```
+
+Directly call CLI command, note that the robot.id and teleop.id should be the filenames of corresponding calibration json:
+
+```bash
+conda activate smolvla
+cd ~/lerobot
+lerobot-teleoperate \
+    --robot.type=so101_follower \
+    --robot.port=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF218449-if00 \
+    --robot.id=so101_follower_new_calib \
+    --teleop.type=so101_leader \
+    --teleop.port=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF219896-if00 \
+    --teleop.id=so101_leader_new_calib \
+    --display_data=false
+```
+
+Or simply:
+
+```bash
+conda activate smolvla
+cd ~/lerobot/isaacsim_sim2real/scripts
+python so101_teleoperate.py
+```
+
+#### Record
+
+```bash
+
+```
+
+#### Train
+
+```bash
+
+```
+
+---
+
 ## Open tasks
 
 For now the perception-action loop with Isaac Sim and VLA model is setup, but only zero-shot SmolVLA is tested, the performance needs to be improved by fine-tuning SmolVLA. Therefore the on-going open tasks of this project include:
