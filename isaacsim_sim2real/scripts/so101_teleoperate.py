@@ -14,13 +14,13 @@ import queue
 import time
 import zmq
 import logging
+from typing import Dict
 logging.basicConfig(level=logging.INFO)
 
 from lerobot.robots.so101_follower.so101_follower import SO101Follower
 from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
 from lerobot.teleoperators.so101_leader.so101_leader import SO101Leader
 from lerobot.teleoperators.so101_leader.config_so101_leader import SO101LeaderConfig
-from lerobot.utils.robot_utils import precise_sleep
 from lerobot.sim2real.constant import (
     SO101_FOLLOWER_PORT_ID,
     SO101_LEADER_PORT_ID,
@@ -29,15 +29,21 @@ from lerobot.sim2real.constant import (
     OUTPUT_ACTION_SOCKET,
     INPUT_OBSERVATION_SOCKET,
     JOINT_ORDER,
-    SO101_NEW_CALIB,
 )
 from lerobot.sim2real.thread import (
     reset_sim_robot_worker,
     reset_real_robot_worker,
+    teleoperate_worker,
+    record_sim_joint_state_worker,
+    record_real_joint_state_worker,
 )
 from lerobot.sim2real.utils import (
-    joint_state_pos2rad,
+    compute_latency,
 )
+from lerobot.sim2real.debug import (
+    plot_joint_lines_in_record,
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -58,6 +64,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=100,
         help="The frequency of read action from leader and send to target arm, in unit of Hz.",
+    )
+    parser.add_argument(
+        "--plot_record",
+        type=bool,
+        default=True,
+        help="Whether save a plot of recorded trajectories.",
     )
     return parser.parse_args()
 
@@ -101,9 +113,15 @@ def main():
     try:
 
         # take the leader arm's current pose as initial pose
+        
         initial_pose = leader.get_action()
 
-        # create threads
+        # create threads and shared record buffer
+        
+        latency_record = queue.Queue()
+        stop_event = threading.Event()
+        robot_lock = threading.Lock() # to avoid multiple threads to read or write to motor bus at the same time
+        
         reset_sim_thread = threading.Thread(
             target=reset_sim_robot_worker,
             args=(initial_pose, obs_socket, act_socket, JOINT_ORDER),
@@ -112,6 +130,20 @@ def main():
             target=reset_real_robot_worker,
             args=(initial_pose, follower),
         )
+        teleoperate_thread = threading.Thread(
+            target=teleoperate_worker,
+            args=(stop_event, robot_lock, latency_record, 1 / args.fps, leader, follower, act_socket, args.sim, args.real, False),
+        )
+        record_sim_action_thread = threading.Thread(
+            target=record_sim_joint_state_worker, 
+            args=(stop_event, latency_record, 1.0/200, obs_socket),
+        )
+        record_real_action_thread = threading.Thread(
+            target=record_real_joint_state_worker, 
+            args=(stop_event, robot_lock, latency_record, 1.0/200, follower),
+        )
+
+        # move to initial pose firstly
 
         if args.sim:
             reset_sim_thread.start()
@@ -124,27 +156,78 @@ def main():
         if args.real:
             reset_real_thread.join()
 
-        while True:
+        # execute trajectories
 
-            loop_start = time.perf_counter()
-            curr_action = leader.get_action()
-            if args.real:
-                follower.send_action(curr_action)
-            if args.sim:
-                sent_sim_action = joint_state_pos2rad(
-                    pos_joint_state=curr_action,
-                    calibration=SO101_NEW_CALIB,
-                )
-                act_socket.send(sent_sim_action.tobytes())
-            dt_s = time.perf_counter() - loop_start
-            precise_sleep(1 / args.fps - dt_s)
-            loop_s = time.perf_counter() - loop_start
-            print(f"\rTeleop loop time: {loop_s * 1e3:.2f}ms ({1 / loop_s:.0f} Hz)", end="", flush=True)
-    
+        teleoperate_thread.start()
+        if args.sim:
+            record_sim_action_thread.start()
+        if args.real:
+            record_real_action_thread.start()
+
+        # keep main thread alive
+        while not stop_event.is_set():
+            time.sleep(0.1)
+
     except KeyboardInterrupt:
-        pass
+
+        logging.info("Ctrl + C received")
+        stop_event.set()
 
     finally:
+
+        teleoperate_thread.join()
+        if args.sim:
+            record_sim_action_thread.join()
+        if args.real:
+            record_real_action_thread.join()
+
+        # compute latency
+
+        record: Dict[str, Dict[str, Dict[str, float]]] = dict()
+        plot_title = ""
+        while not latency_record.empty():
+            record.update(latency_record.get())
+
+        if args.sim:
+            sim_latency = compute_latency(
+                reference_actions=record["send_sim"],
+                target_actions=record["exec_sim"],
+                percentage=(0.1,0.9),
+            )
+            sim_latenfy_info = f"sim_latency: {sim_latency * 1000:.1f} ms "
+            logging.info(sim_latenfy_info)
+            plot_title += sim_latenfy_info
+
+        if args.real:
+            real_latency = compute_latency(
+                reference_actions=record["send_real"],
+                target_actions=record["exec_real"],
+                percentage=(0.1,0.9),
+            )
+            real_latency_info = f"real_latency: {real_latency * 1000:.1f} ms "
+            logging.info(real_latency_info)
+            plot_title += real_latency_info
+
+        if args.sim and args.real:
+            sim2real_latency = compute_latency(
+                reference_actions=record["exec_sim"],
+                target_actions=record["exec_real"],
+                percentage=(0.1,0.9),
+            )
+            sim2real_latency_info = f"sim2real_latency: {sim2real_latency * 1000:.1f} ms "
+            logging.info(sim2real_latency_info)
+            plot_title += sim2real_latency_info
+
+        if args.plot_record:
+
+            plot_joint_lines_in_record(
+                record=record,
+                which_record=["send_sim", "exec_sim", "exec_real"],
+                title=plot_title,
+                store=True,
+            )
+
+
         if leader.is_connected:
             leader.disconnect()
         if follower.is_connected:

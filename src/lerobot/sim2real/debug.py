@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 from pathlib import Path
 import matplotlib.pyplot as plt
 import time
@@ -30,7 +30,8 @@ def print_record(
 
 def plot_joint_lines_in_record(
     record: dict,
-    which_record: list[str],
+    which_record: List[str],
+    title: str,
     store: bool = False,
     store_folder: Path = LOG_FOLDER,
 ):
@@ -55,20 +56,19 @@ def plot_joint_lines_in_record(
     """
 
     num_joints = len(JOINT_ORDER)
+    ncols = 2
+    nrows = (num_joints + ncols - 1) // ncols
 
     fig, axes = plt.subplots(
-        num_joints,
-        1,
-        figsize=(10, 3 * num_joints),
+        nrows,
+        ncols,
+        figsize=(20, 3 * nrows),
         sharex=True,
     )
 
-    if num_joints == 1:
-        axes = [axes]
-
     for joint_idx, joint_name in enumerate(JOINT_ORDER):
 
-        ax = axes[joint_idx]
+        ax = axes[joint_idx // ncols][joint_idx % ncols]
 
         for record_name in which_record:
 
@@ -85,12 +85,13 @@ def plot_joint_lines_in_record(
                 label=record_name,
             )
 
-        ax.set_title(joint_name)
         ax.grid(True)
         ax.legend()
 
-    axes[-1].set_xlabel("Timestamp")
+    for ax in axes[-1]:
+        ax.set_xlabel("Timestamp")
 
+    fig.suptitle(title)
     plt.tight_layout()
     if not store:
         plt.show()

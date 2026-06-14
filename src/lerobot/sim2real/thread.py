@@ -53,6 +53,8 @@ def reset_sim_robot_worker(
         sim_joint_state = get_rad_joint_state_from_socket(
             obs_socket=obs_socket,
         )
+        if sim_joint_state is None:
+            continue
         difference = list()
         for joint_name in joint_order:
             difference.append(initial_pose[joint_name] - sim_joint_state[joint_name])
@@ -78,6 +80,73 @@ def reset_real_robot_worker(
         reverse_order=True,
     )
     logging.info(f"Real robot is ready to go")
+
+
+def teleoperate_worker(    
+    stop_event: threading.Event,
+    robot_lock: threading.Lock,
+    record: queue.Queue,
+    dt: float,
+    leader: SO101Leader,
+    follower: SO101Follower,
+    action_socket: zmq.SyncSocket,
+    sim: bool = True,
+    real: bool = True,
+    verbose: bool = False,
+):
+    """The thread to send fixed trajectory to either simulated or real robot.
+    
+    :param stop_event: signal to stop recording
+    :param robot_lock: a lock to avoid other threads to operate on motor bus when sending actions to real robot
+    :param record: the shared queue to keep the latency info
+    :param dt: the time interval to send an action
+    :param leader: the real robot arm which provides action commands
+    :param follower: the real robot arm which follows the leader arm
+    :param action_socket: the socket to send actions to simulated robot
+    :param sim: whether send to simulated robot
+    :param real: whether sent to real robot
+    :param verbose: whether log the process
+    """
+    logging.info("Thread send_action_worker begins.")
+
+    # NOTE: only record calibrated normalized actions
+    latency_info = {
+        "send_real": dict(),
+        "send_sim" : dict(),
+    }
+
+    # exeucte the trajectories
+    while not stop_event.is_set():
+        loop_start = time.perf_counter()
+        curr_action = leader.get_action()
+        if real:
+            with robot_lock:
+                send_real_time = time.perf_counter()
+                sent_real_action = follower.send_action(curr_action)
+            latency_info["send_real"][send_real_time] = curr_action
+            if verbose:
+                log_joint_state(
+                    joint_state=sent_real_action,
+                    logging_label="Sent action to real robot",
+                )
+        if sim:
+            sent_sim_action = joint_state_pos2rad(
+                pos_joint_state=curr_action,
+                calibration=SO101_NEW_CALIB,
+            )
+            send_sim_time = time.perf_counter()
+            action_socket.send(sent_sim_action.tobytes())
+            latency_info["send_sim"][send_sim_time] = curr_action
+            if verbose:
+                log_joint_state(
+                    joint_state=dict(zip(JOINT_ORDER, sent_sim_action)),
+                    logging_label="Sent action to simulated robot",
+                )
+        precise_sleep(dt - (time.perf_counter() - loop_start))
+
+    record.put(latency_info)
+    stop_event.set()
+    logging.info("Thread teleoperate_worker ends.")
 
 
 def send_action_worker(
@@ -152,14 +221,14 @@ def send_action_worker(
 
 
 def record_sim_joint_state_worker(
-    send_action_finish: threading.Event,
+    stop_event: threading.Event,
     record: queue.Queue,
     dt: float,
     obs_socket: zmq.SyncSocket,
 ):
     """The thread to real current joint states of simulated robot.
 
-    :param send_action_finish: indicate if the actions are all sent
+    :param stop_event: signal to stop recording
     :param record: the shared queue to keep the latency info
     :param dt: the time interval to read joint state from simulated robot
     :param obs_socket: the socket to read the current joint states of simulated robot
@@ -170,12 +239,13 @@ def record_sim_joint_state_worker(
         "exec_sim": dict(),
     }
 
-    while not send_action_finish.is_set():
+    while not stop_event.is_set():
         record_sim_time = time.perf_counter()
         sim_joint_state = get_rad_joint_state_from_socket(
             obs_socket=obs_socket,
         )
-        latency_info["exec_sim"][record_sim_time] = sim_joint_state
+        if sim_joint_state is not None:
+            latency_info["exec_sim"][record_sim_time] = sim_joint_state
         precise_sleep(dt - (time.perf_counter() - record_sim_time))
 
     record.put(latency_info)
@@ -184,7 +254,7 @@ def record_sim_joint_state_worker(
 
 
 def record_real_joint_state_worker(
-    send_action_finish: threading.Event,
+    stop_event: threading.Event,
     robot_lock: threading.Lock,
     record: queue.Queue,
     dt: float,
@@ -192,7 +262,7 @@ def record_real_joint_state_worker(
 ):
     """The thread to real current joint states of real robot.
 
-    :param send_action_finish: indicate if the actions are all sent
+    :param stop_event: signal to stop recording
     :param robot_lock: a lock to avoid other threads to operate on motor bus when read present position registers
     :param record: the shared queue to keep the latency info
     :param dt: the time interval to read joint state from real robot
@@ -203,7 +273,7 @@ def record_real_joint_state_worker(
     latency_info = {
         "exec_real": dict(),
     }
-    while not send_action_finish.is_set():
+    while not stop_event.is_set():
         with robot_lock:
             record_real_time = time.perf_counter()
             if isinstance(robot, SO101Follower):

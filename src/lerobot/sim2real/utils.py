@@ -345,11 +345,20 @@ def compute_latency(
 
 def get_rad_joint_state_from_socket(
     obs_socket: zmq.SyncSocket,
+    timeout_ms: int = 10,
 ) -> Dict[str, float]:
     """Extract the joint state in radian from socket and convert to calibrated normalized format.
     
     :param obs_socket: the socket to read the current joint states of simulated robot
     """
+
+    poller = zmq.Poller()
+    poller.register(obs_socket, zmq.POLLIN)
+
+    socks = dict(poller.poll(timeout_ms))
+
+    if obs_socket not in socks:
+        return None
 
     payload = obs_socket.recv()   # one npz blob
     buf = io.BytesIO(payload)
