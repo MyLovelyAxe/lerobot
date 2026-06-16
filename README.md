@@ -144,9 +144,48 @@ python so101_teleoperate.py
 
 #### Record
 
-```bash
+Call with a config file:
 
+```bash
+conda activate smolvla
+cd ~/lerobot
+lerobot-record --config_path=configs/lerobot_record.json
 ```
+
+Call with CLI command:
+
+```bash
+conda activate smolvla
+cd ~/lerobot
+lerobot-record \
+    --robot.type=so100_follower \
+    --robot.port=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF218449-if00 \
+    --robot.cameras='{
+        wrist: {"type": "opencv", "index_or_path": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:2.3:1.0-video-index0", "width": 640, "height": 480, "fps": 30, "fourcc": "MJPG"},
+        side: {"type": "opencv", "index_or_path": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:2.4:1.0-video-index0", "width": 640, "height": 480, "fps": 30, "fourcc": "MJPG"}
+    }' \
+    --robot.id=so101_follower_new_calib \
+    --dataset.repo_id=hardli/test \
+    --dataset.num_episodes=2 \
+    --dataset.single_task="Grab the cube" \
+    --display_data=false
+    --teleop.type=so100_leader \
+    --teleop.port=/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF219896-if00 \
+    --teleop.id=so101_leader_new_calib \
+```
+
+Recording operations:
+
+- Each episode lasts 60 seconds by default (defined by episode_time_s);
+
+- End an episode early than 60s by pressing the right arrow key (→);
+
+- After each episode, there's a 60-second reset period (defined by reset_time_s), where you move the robot back to the start position (teleop still works, but nothing is recorded). You can also skip the reset early with →;
+
+- Left arrow key (←) :re-record the current episode (discard and redo);
+
+- Esc :stop recording entirely;
+
 
 #### Train
 
