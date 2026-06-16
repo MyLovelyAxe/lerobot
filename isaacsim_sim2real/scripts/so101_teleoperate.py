@@ -50,12 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sim",
         action="store_true",
-        default=False,
+        default=True,
         help="Send target pose to simulation. Without this flag, the script only logs joint positions.",
     )
     parser.add_argument(
         "--real",
-        default=False,
+        default=True,
         action="store_true",
         help="Send target pose to real robot. Without this flag, the script only logs joint positions.",
     )
@@ -64,6 +64,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=100,
         help="The frequency of read action from leader and send to target arm, in unit of Hz.",
+    )
+    parser.add_argument(
+        "--max_record_duration",
+        type=float,
+        default=30.0,
+        help="The maximum duration to record the trajectories for computing latency, in unit of seconds.",
     )
     parser.add_argument(
         "--plot_record",
@@ -187,6 +193,17 @@ def main():
         plot_title = ""
         while not latency_record.empty():
             record.update(latency_record.get())
+
+        # Only keep the limited duration for computing latency, in case the record is too long
+        for latency_label, recored_trajectory in record.items():
+            timestamps = sorted(float(ts) for ts in recored_trajectory)
+            if not timestamps:
+                continue
+            cutoff = timestamps[0] + args.max_record_duration
+            record[latency_label] = {
+                ts: v for ts, v in recored_trajectory.items()
+                if float(ts) <= cutoff
+            }
 
         if args.sim:
             sim_latency = compute_latency(
