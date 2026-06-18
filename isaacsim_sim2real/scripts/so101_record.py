@@ -13,13 +13,13 @@
 # limitations under the License.
 
 """
-Records a dataset by teleoperating a robot.
+Records a dataset by teleoperating an SO-101 robot.
 
 Example:
 
 ```shell
 python so101_record.py \
-    --robot.type=so100_follower \
+    --robot.type=so101_follower \
     --robot.port=/dev/tty.usbmodem58760431541 \
     --robot.cameras="{laptop: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}" \
     --robot.id=black \
@@ -27,7 +27,7 @@ python so101_record.py \
     --dataset.num_episodes=2 \
     --dataset.single_task="Grab the cube" \
     --display_data=true \
-    --teleop.type=so100_leader \
+    --teleop.type=so101_leader \
     --teleop.port=/dev/tty.usbmodem58760431551 \
     --teleop.id=blue
 ```
@@ -59,32 +59,21 @@ from lerobot.processor import (
 from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
-    bi_so100_follower,
-    earthrover_mini_plus,
-    hope_jr,
-    koch_follower,
     make_robot_from_config,
-    so100_follower,
     so101_follower,
 )
 from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
     TeleoperatorConfig,
-    bi_so100_leader,
-    homunculus,
-    koch_leader,
     make_teleoperator_from_config,
-    so100_leader,
     so101_leader,
 )
-from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
 from lerobot.utils.constants import ACTION, OBS_STR
 from lerobot.utils.control_utils import (
     init_keyboard_listener,
     is_headless,
     sanity_check_dataset_robot_compatibility,
 )
-from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import (
     init_logging,
@@ -200,33 +189,13 @@ def record_loop(
         RobotObservation, RobotObservation
     ],  # runs after robot
     dataset: LeRobotDataset | None = None,
-    teleop: Teleoperator | list[Teleoperator] | None = None,
+    teleop: Teleoperator | None = None,
     control_time_s: int | None = None,
     single_task: str | None = None,
     display_data: bool = False,
 ):
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
-
-    teleop_arm = teleop_keyboard = None
-    if isinstance(teleop, list):
-        teleop_keyboard = next((t for t in teleop if isinstance(t, KeyboardTeleop)), None)
-        teleop_arm = next(
-            (
-                t
-                for t in teleop
-                if isinstance(
-                    t,
-                    (so100_leader.SO100Leader | so101_leader.SO101Leader | koch_leader.KochLeader),
-                )
-            ),
-            None,
-        )
-
-        if not (teleop_arm and teleop_keyboard and len(teleop) == 2 and robot.name == "lekiwi_client"):
-            raise ValueError(
-                "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm teleoperator. Currently only supported for LeKiwi robot."
-            )
 
     timestamp = 0
     start_episode_t = time.perf_counter()
@@ -247,23 +216,8 @@ def record_loop(
             observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
 
         # Get action from teleop
-        if isinstance(teleop, Teleoperator):
-            act = teleop.get_action()
-            act_processed = teleop_action_processor((act, obs))
-        elif isinstance(teleop, list):
-            arm_action = teleop_arm.get_action()
-            arm_action = {f"arm_{k}": v for k, v in arm_action.items()}
-            keyboard_action = teleop_keyboard.get_action()
-            base_action = robot._from_keyboard_to_base_action(keyboard_action)
-            act = {**arm_action, **base_action} if len(base_action) > 0 else arm_action
-            act_processed = teleop_action_processor((act, obs))
-        else:
-            logging.info(
-                "No teleoperator provided, skipping action generation."
-                "This is likely to happen when resetting the environment without a teleop device."
-                "The robot won't be at its rest position at the start of the next episode."
-            )
-            continue
+        act = teleop.get_action()
+        act_processed = teleop_action_processor((act, obs))
 
         # Applies a pipeline to the action, default is IdentityProcessor
         action_values = act_processed
@@ -304,7 +258,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             pipeline=teleop_action_processor,
             initial_features=create_initial_features(
                 action=robot.action_features
-            ),  # TODO(steven, pepijn): in future this should be come from teleop or policy
+            ),
             use_videos=cfg.dataset.video,
         ),
         aggregate_pipeline_dataset_features(
@@ -410,10 +364,6 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     return dataset
 
 
-def main():
-    register_third_party_plugins()
-    record()
-
-
 if __name__ == "__main__":
-    main()
+
+    record()
