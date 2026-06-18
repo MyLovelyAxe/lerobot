@@ -1,49 +1,30 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
+NOTE: This script is simplified lerobot/src/lerobot/scripts/lerobot_record.py
+
 Records a dataset by teleoperating an SO-101 robot.
 
 Example:
 
-```shell
-python so101_record.py \
-    --robot.type=so101_follower \
-    --robot.port=/dev/tty.usbmodem58760431541 \
-    --robot.cameras="{laptop: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}" \
-    --robot.id=black \
-    --dataset.repo_id=<my_username>/<my_dataset_name> \
-    --dataset.num_episodes=2 \
-    --dataset.single_task="Grab the cube" \
-    --display_data=true \
-    --teleop.type=so101_leader \
-    --teleop.port=/dev/tty.usbmodem58760431551 \
-    --teleop.id=blue
-```
+$ cd ~/lerobot/isaacsim_sim2real/scripts
+
+Record real dataset with real leader arm and real follower arm:
+
+$ python so101_record.py \
+    --num_episodes 2 \
+    --dataset_name test_simplified
+
 """
 
-import logging
 import time
-from dataclasses import asdict, dataclass, field
+import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
-from pprint import pformat
 
-from lerobot.cameras import (  # noqa: F401
-    CameraConfig,  # noqa: F401
-)
-from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
-from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
+from lerobot.robots.so101_follower.so101_follower import SO101Follower
+from lerobot.robots.so101_follower.config_so101_follower import SO101FollowerConfig
+from lerobot.teleoperators.so101_leader.so101_leader import SO101Leader
+from lerobot.teleoperators.so101_leader.config_so101_leader import SO101LeaderConfig
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.configs import parser
 from lerobot.datasets.image_writer import safe_stop_image_writer
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -56,30 +37,61 @@ from lerobot.processor import (
     RobotProcessorPipeline,
     make_default_processors,
 )
-from lerobot.robots import (  # noqa: F401
-    Robot,
-    RobotConfig,
-    make_robot_from_config,
-    so101_follower,
-)
-from lerobot.teleoperators import (  # noqa: F401
-    Teleoperator,
-    TeleoperatorConfig,
-    make_teleoperator_from_config,
-    so101_leader,
-)
 from lerobot.utils.constants import ACTION, OBS_STR
 from lerobot.utils.control_utils import (
     init_keyboard_listener,
     is_headless,
-    sanity_check_dataset_robot_compatibility,
 )
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import (
     init_logging,
     log_say,
 )
-from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+from lerobot.sim2real.constant import (
+    SO101_FOLLOWER_PORT_ID,
+    SO101_LEADER_PORT_ID,
+    SO101_FOLLOWER_NEW_CALIB,
+    SO101_LEADER_NEW_CALIB,
+    OUTPUT_ACTION_SOCKET,
+    INPUT_OBSERVATION_SOCKET,
+    JOINT_ORDER,
+    So101Camera,
+)
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--username",
+        type=str,
+        default="hardli",
+        help="In order to construct repo_id.",
+    )
+    parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="test_simplified",
+        help="In order to construct repo_id.",
+    )
+    parser.add_argument(
+        "--num_episodes",
+        type=int,
+        default="2",
+        help="How many episodes to record for this dataset.",
+    )
+    parser.add_argument(
+        "--single_task",
+        type=str,
+        default="Grab the cube",
+        help="Instruction input of the task.",
+    )
+    parser.add_argument(
+        "--push_to_hub",
+        action="store_true",
+        default=False,
+        help="Whether push the result dataset to Hugging Face Hub.",
+    )
+    # TODO: add option to record real dataset or simulated dataset
+    return parser.parse_args()
 
 
 @dataclass
@@ -126,57 +138,10 @@ class DatasetRecordConfig:
             raise ValueError("You need to provide a task as argument in `single_task`.")
 
 
-@dataclass
-class RecordConfig:
-    robot: RobotConfig
-    dataset: DatasetRecordConfig
-    # Whether to control the robot with a teleoperator
-    teleop: TeleoperatorConfig | None = None
-    # Display all cameras on screen
-    display_data: bool = False
-    # Use vocal synthesis to read events.
-    play_sounds: bool = True
-    # Resume recording on an existing dataset.
-    resume: bool = False
-
-    def __post_init__(self):
-        if self.teleop is None:
-            raise ValueError("A teleoperator is required to control the robot")
-
-
-""" --------------- record_loop() data flow --------------------------
-       [ Robot ]
-           V
-     [ robot.get_observation() ] ---> raw_obs
-           V
-     [ robot_observation_processor ] ---> processed_obs
-           V
-     .-----( ACTION LOGIC )------------------.
-     V                                       V
-     [ From Teleoperator ]                   |
-     |                                       |
-     |  [teleop.get_action] -> raw_action    |
-     |          |                            |
-     |          V                            |
-     | [teleop_action_processor]             |
-     |          |                            |
-     '---> processed_teleop_action           |
-             |                              |
-             '-----------------------------.
-                                            V
-                               [ robot_action_processor ] --> robot_action_to_send
-                                            V
-                                 [ robot.send_action() ] -- (Robot Executes)
-                                            V
-                                 ( Save to Dataset )
-                                            V
-                          ( Rerun Log / Loop Wait )
-"""
-
-
 @safe_stop_image_writer
 def record_loop(
-    robot: Robot,
+    robot: SO101Follower,
+    teleop: SO101Leader,
     events: dict,
     fps: int,
     teleop_action_processor: RobotProcessorPipeline[
@@ -189,10 +154,8 @@ def record_loop(
         RobotObservation, RobotObservation
     ],  # runs after robot
     dataset: LeRobotDataset | None = None,
-    teleop: Teleoperator | None = None,
     control_time_s: int | None = None,
     single_task: str | None = None,
-    display_data: bool = False,
 ):
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
@@ -232,24 +195,46 @@ def record_loop(
             frame = {**observation_frame, **action_frame, "task": single_task}
             dataset.add_frame(frame)
 
-        if display_data:
-            log_rerun_data(observation=obs_processed, action=action_values)
-
         dt_s = time.perf_counter() - start_loop_t
         precise_sleep(1 / fps - dt_s)
 
         timestamp = time.perf_counter() - start_episode_t
 
 
-@parser.wrap()
-def record(cfg: RecordConfig) -> LeRobotDataset:
+# @parser.wrap()
+def record(dataset_record_cfg: DatasetRecordConfig) -> LeRobotDataset:
     init_logging()
-    logging.info(pformat(asdict(cfg)))
-    if cfg.display_data:
-        init_rerun(session_name="recording")
 
-    robot = make_robot_from_config(cfg.robot)
-    teleop = make_teleoperator_from_config(cfg.teleop) if cfg.teleop is not None else None
+    # create robots
+    teleop = SO101Leader(
+        config=SO101LeaderConfig(
+            port=SO101_LEADER_PORT_ID, 
+            id=SO101_LEADER_NEW_CALIB,
+        ),
+    )
+    robot_camera_config = dict(
+        wrist=OpenCVCameraConfig(
+            index_or_path=So101Camera.wrist_cam, 
+            width=640, 
+            height=480, 
+            fps=30,
+            fourcc="MJPG",
+        ),
+        side=OpenCVCameraConfig(
+            index_or_path=So101Camera.side_cam, 
+            width=640, 
+            height=480, 
+            fps=30,
+            fourcc="MJPG",
+        ),
+    )
+    robot = SO101Follower(
+        config=SO101FollowerConfig(
+            port=SO101_FOLLOWER_PORT_ID, 
+            id=SO101_FOLLOWER_NEW_CALIB,
+            cameras=robot_camera_config,
+        ),
+    )
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
@@ -259,41 +244,27 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             initial_features=create_initial_features(
                 action=robot.action_features
             ),
-            use_videos=cfg.dataset.video,
+            use_videos=dataset_record_cfg.video,
         ),
         aggregate_pipeline_dataset_features(
             pipeline=robot_observation_processor,
             initial_features=create_initial_features(observation=robot.observation_features),
-            use_videos=cfg.dataset.video,
+            use_videos=dataset_record_cfg.video,
         ),
     )
 
-    if cfg.resume:
-        dataset = LeRobotDataset(
-            cfg.dataset.repo_id,
-            root=cfg.dataset.root,
-            batch_encoding_size=cfg.dataset.video_encoding_batch_size,
-        )
-
-        if hasattr(robot, "cameras") and len(robot.cameras) > 0:
-            dataset.start_image_writer(
-                num_processes=cfg.dataset.num_image_writer_processes,
-                num_threads=cfg.dataset.num_image_writer_threads_per_camera * len(robot.cameras),
-            )
-        sanity_check_dataset_robot_compatibility(dataset, robot, cfg.dataset.fps, dataset_features)
-    else:
-        # Create empty dataset or load existing saved episodes
-        dataset = LeRobotDataset.create(
-            cfg.dataset.repo_id,
-            cfg.dataset.fps,
-            root=cfg.dataset.root,
-            robot_type=robot.name,
-            features=dataset_features,
-            use_videos=cfg.dataset.video,
-            image_writer_processes=cfg.dataset.num_image_writer_processes,
-            image_writer_threads=cfg.dataset.num_image_writer_threads_per_camera * len(robot.cameras),
-            batch_encoding_size=cfg.dataset.video_encoding_batch_size,
-        )
+    # Create empty dataset or load existing saved episodes
+    dataset = LeRobotDataset.create(
+        dataset_record_cfg.repo_id,
+        dataset_record_cfg.fps,
+        root=dataset_record_cfg.root,
+        robot_type=robot.name,
+        features=dataset_features,
+        use_videos=dataset_record_cfg.video,
+        image_writer_processes=dataset_record_cfg.num_image_writer_processes,
+        image_writer_threads=dataset_record_cfg.num_image_writer_threads_per_camera * len(robot.cameras),
+        batch_encoding_size=dataset_record_cfg.video_encoding_batch_size,
+    )
 
     robot.connect()
     if teleop is not None:
@@ -303,43 +274,41 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
     with VideoEncodingManager(dataset):
         recorded_episodes = 0
-        while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
-            log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
+        while recorded_episodes < dataset_record_cfg.num_episodes and not events["stop_recording"]:
+            log_say(f"Recording episode {dataset.num_episodes}")
             record_loop(
                 robot=robot,
+                teleop=teleop,
                 events=events,
-                fps=cfg.dataset.fps,
+                fps=dataset_record_cfg.fps,
                 teleop_action_processor=teleop_action_processor,
                 robot_action_processor=robot_action_processor,
                 robot_observation_processor=robot_observation_processor,
-                teleop=teleop,
                 dataset=dataset,
-                control_time_s=cfg.dataset.episode_time_s,
-                single_task=cfg.dataset.single_task,
-                display_data=cfg.display_data,
+                control_time_s=dataset_record_cfg.episode_time_s,
+                single_task=dataset_record_cfg.single_task,
             )
 
             # Execute a few seconds without recording to give time to manually reset the environment
             # Skip reset for the last episode to be recorded
             if not events["stop_recording"] and (
-                (recorded_episodes < cfg.dataset.num_episodes - 1) or events["rerecord_episode"]
+                (recorded_episodes < dataset_record_cfg.num_episodes - 1) or events["rerecord_episode"]
             ):
-                log_say("Reset the environment", cfg.play_sounds)
+                log_say("Reset the environment")
                 record_loop(
                     robot=robot,
+                    teleop=teleop,
                     events=events,
-                    fps=cfg.dataset.fps,
+                    fps=dataset_record_cfg.fps,
                     teleop_action_processor=teleop_action_processor,
                     robot_action_processor=robot_action_processor,
                     robot_observation_processor=robot_observation_processor,
-                    teleop=teleop,
-                    control_time_s=cfg.dataset.reset_time_s,
-                    single_task=cfg.dataset.single_task,
-                    display_data=cfg.display_data,
+                    control_time_s=dataset_record_cfg.reset_time_s,
+                    single_task=dataset_record_cfg.single_task,
                 )
 
             if events["rerecord_episode"]:
-                log_say("Re-record episode", cfg.play_sounds)
+                log_say("Re-record episode")
                 events["rerecord_episode"] = False
                 events["exit_early"] = False
                 dataset.clear_episode_buffer()
@@ -348,7 +317,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             dataset.save_episode()
             recorded_episodes += 1
 
-    log_say("Stop recording", cfg.play_sounds, blocking=True)
+    log_say("Stop recording", blocking=True)
 
     robot.disconnect()
     if teleop is not None:
@@ -357,13 +326,27 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     if not is_headless() and listener is not None:
         listener.stop()
 
-    if cfg.dataset.push_to_hub:
-        dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
+    if dataset_record_cfg.push_to_hub:
+        dataset.push_to_hub(tags=dataset_record_cfg.tags, private=dataset_record_cfg.private)
 
-    log_say("Exiting", cfg.play_sounds)
+    log_say("Exiting")
     return dataset
+
+
+def main():
+
+    args = parse_args()
+
+    record(
+        dataset_record_cfg=DatasetRecordConfig(
+            repo_id=f"{args.username}/{args.dataset_name}",
+            num_episodes=args.num_episodes,
+            single_task=args.single_task,
+            push_to_hub=args.push_to_hub,
+        ),
+    )
 
 
 if __name__ == "__main__":
 
-    record()
+    main()

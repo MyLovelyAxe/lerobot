@@ -186,6 +186,16 @@ Recording operations:
 
 - Esc :stop recording entirely;
 
+Or simply with this customized one:
+
+```bash
+conda activate smolvla
+cd ~/lerobot/isaacsim_sim2real/scripts
+python so101_record.py \
+    --num_episodes 2 \
+    --dataset_name test_simplified
+```
+
 
 #### Train
 
