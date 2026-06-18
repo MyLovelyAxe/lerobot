@@ -1,0 +1,37 @@
+{
+  "robot": {
+    "type": "so101_follower",
+    "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF218449-if00",
+    "cameras": {
+        "wrist": {
+            "type": "opencv", 
+            "index_or_path": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:2.3:1.0-video-index0", 
+            "width": 640, 
+            "height": 480, 
+            "fps": 30,
+            "fourcc": "MJPG"
+        },
+        "side": {
+            "type": "opencv", 
+            "index_or_path": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:2.4:1.0-video-index0", 
+            "width": 640, 
+            "height": 480, 
+            "fps": 30,
+            "fourcc": "MJPG"
+        }
+    },
+    "id": "so101_follower_new_calib"
+  },
+  "dataset": {
+    "repo_id": "hardli/test_simplified",
+    "num_episodes": 2,
+    "single_task": "Grab the cube",
+    "push_to_hub": false
+  },
+  "teleop": {
+    "type": "so101_leader",
+    "port": "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AAF219896-if00",
+    "id": "so101_leader_new_calib"
+  },
+  "display_data": false
+}
