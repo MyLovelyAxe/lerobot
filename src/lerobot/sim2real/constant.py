@@ -3,8 +3,11 @@ from pathlib import Path
 
 ###### Paths ######
 
-LOG_FOLDER = Path(__file__).resolve().parent.parent.parent.parent / "isaacsim_sim2real/logs"
+LEROBOT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+LOG_FOLDER = LEROBOT_ROOT / "isaacsim_sim2real/logs"
 DEFAULT_HUGGING_FACE_DATASET_ROOT = Path("/home/hardli/.cache/huggingface/lerobot")
+CAMERA_CALIB_JSON_PATH = LEROBOT_ROOT / "configs/u20cam_calib.json"
+
 
 ###### Cameras ######
 

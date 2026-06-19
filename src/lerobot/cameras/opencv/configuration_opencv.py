@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import numpy as np
 
 from ..configs import CameraConfig, ColorMode, Cv2Rotation
 
@@ -62,6 +63,10 @@ class OpenCVCameraConfig(CameraConfig):
     rotation: Cv2Rotation = Cv2Rotation.NO_ROTATION
     warmup_s: int = 1
     fourcc: str | None = None
+    # for undistortion
+    intrinsics: np.ndarray | None = None # shape (3, 3)
+    dist_coeffs: np.ndarray | None = None # shape (5,)
+    undistort: bool = True
 
     def __post_init__(self) -> None:
         if self.color_mode not in (ColorMode.RGB, ColorMode.BGR):

@@ -21,6 +21,7 @@ import math
 import os
 import platform
 import time
+import numpy as np
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any
@@ -117,6 +118,18 @@ class OpenCVCamera(Camera):
         self.color_mode = config.color_mode
         self.warmup_s = config.warmup_s
 
+        # undistort raw frames
+        self.undistort = config.undistort
+        if self.undistort:
+            assert config.intrinsics.shape == (3, 3), (
+                f"The camera intrinsics should have shape (3, 3) but got {config.intrinsics.shape}",
+            )
+            self.intrinsics = config.intrinsics
+            assert config.dist_coeffs.shape == (5, ), (
+                f"The camera distortion coefficients should have shape (5, ) but got {config.dist_coeffs.shape}",
+            )
+            self.dist_coeffs = config.dist_coeffs
+        
         self.videocapture: cv2.VideoCapture | None = None
 
         self.thread: Thread | None = None
@@ -171,6 +184,9 @@ class OpenCVCamera(Camera):
 
         self._configure_capture_settings()
 
+        if self.undistort:
+            self._get_optimal_new_camera_matrix()
+
         if warmup:
             start_time = time.time()
             while time.time() - start_time < self.warmup_s:
@@ -178,6 +194,26 @@ class OpenCVCamera(Camera):
                 time.sleep(0.1)
 
         logger.info(f"{self} connected.")
+
+    def _get_optimal_new_camera_matrix(self) -> None:
+        """
+        Computes the optimal new camera matrix and ROI for undistortion.
+
+        Uses `cv2.getOptimalNewCameraMatrix` with alpha=0 to compute a new intrinsics
+        matrix that eliminates all black pixels from the undistorted output, along with
+        the valid ROI. Stores the results as instance attributes for use in `_undistort_frame`.
+
+        Must be called after `connect()` so that `self.width` and `self.height` are set.
+        """
+        
+        self.new_camera_matrix, self.roi = cv2.getOptimalNewCameraMatrix(
+            cameraMatrix=self.intrinsics,
+            distCoeffs=self.dist_coeffs,
+            imageSize=(self.width, self.height),
+            alpha=0, # NOTE: by default 
+            newImgSize=(self.width, self.height),
+        )
+        self.roi_x, self.roi_y, self.roi_w, self.roi_h = self.roi
 
     def _configure_capture_settings(self) -> None:
         """
@@ -382,6 +418,41 @@ class OpenCVCamera(Camera):
 
         return processed_frame
 
+    def _undistort_frame(self, frame: np.ndarray) -> np.ndarray:
+        """
+        Undistorts a frame using the calibrated camera intrinsics and distortion coefficients.
+
+        Applies `cv2.undistort` with the precomputed new camera matrix, then crops to
+        the valid ROI and resizes back to the original image dimensions.
+
+        Args:
+            frame: The distorted image frame as a NumPy array (H, W, C).
+
+        Returns:
+            np.ndarray: The undistorted, cropped, and resized image frame.
+        """
+
+        # Undistort
+        undistorted = cv2.undistort(
+            src=frame,
+            cameraMatrix=self.intrinsics,
+            distCoeffs=self.dist_coeffs,
+            dst=None,
+            newCameraMatrix=self.new_camera_matrix,
+        )
+
+        # Crop and resize to original size
+        cropped = undistorted[
+            self.roi_y:self.roi_y+self.roi_h, 
+            self.roi_x:self.roi_x+self.roi_w,
+        ]
+        resized_undistorted = cv2.resize(
+            src=cropped, 
+            dsize=(self.width, self.height), 
+            interpolation=cv2.INTER_LINEAR,
+        )
+        return resized_undistorted
+
     def _postprocess_image(self, image: NDArray[Any], color_mode: ColorMode | None = None) -> NDArray[Any]:
         """
         Applies color conversion, dimension validation, and rotation to a raw frame.
@@ -422,6 +493,9 @@ class OpenCVCamera(Camera):
 
         if self.rotation in [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE, cv2.ROTATE_180]:
             processed_image = cv2.rotate(processed_image, self.rotation)
+
+        if self.undistort:
+            processed_image = self._undistort_frame(processed_image)
 
         return processed_image
 

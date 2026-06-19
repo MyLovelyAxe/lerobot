@@ -19,8 +19,10 @@ python so101_record.py \
 
 import zmq
 import time
+import json
 import argparse
 import threading
+import numpy as np
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +63,7 @@ from lerobot.sim2real.constant import (
     JOINT_ORDER,
     SO101_NEW_CALIB,
     DEFAULT_HUGGING_FACE_DATASET_ROOT,
+    CAMERA_CALIB_JSON_PATH,
     So101Camera,
 )
 from lerobot.sim2real.thread import (
@@ -122,6 +125,24 @@ def parse_args() -> argparse.Namespace:
 
 
 @dataclass
+class CameraCalibration:
+    """Calibration parameters for real u20cam 720P."""
+
+    # Width of image
+    width: int | None = 640
+    # Height of image
+    height: int | None = 480
+    # The frequency of camera to read frames
+    fps: int | None = 30
+    # Intrinsics parameters including focal length, principal points, shape (3, 3)
+    intrinsics: np.ndarray | None = None
+    # Distortion coefficients, shape (5, )
+    dist_coeffs: np.ndarray | None = None
+    # Model of camera distortion
+    dist_model: str = "opencv_pinhole"
+
+
+@dataclass
 class DatasetRecordConfig:
     # Dataset identifier. By convention it should match '{hf_username}/{dataset_name}' (e.g. `lerobot/test`).
     repo_id: str
@@ -159,10 +180,12 @@ class DatasetRecordConfig:
     video_encoding_batch_size: int = 1
     # Rename map for the observation to override the image and state keys
     rename_map: dict[str, str] = field(default_factory=dict)
-    # Record real dataset with real teloperator and real robot
-    real_dataset: bool = True
-    # Record simulated dataset with real teloperator and simulated robot (via zmq socket)
-    sim_dataset: bool = True
+    # Whether record real dataset with real teloperator and real robot
+    record_real: bool = True
+    # Whether record simulated dataset with real teloperator and simulated robot (via zmq socket)
+    record_sim: bool = True
+    # Configuration for real camera, if record real dataset
+    cam_calib: CameraCalibration = None
 
     def __post_init__(self):
         if self.single_task is None:
@@ -171,10 +194,10 @@ class DatasetRecordConfig:
 
 @safe_stop_image_writer
 def record_loop(
-    robot: SO101Follower,
+    robot: SO101Follower | None,
     teleop: SO101Leader,
-    obs_socket: zmq.SyncSocket, # NOTE: for simulation dataset
-    action_socket: zmq.SyncSocket, # NOTE: for simulation dataset
+    obs_socket: zmq.SyncSocket | None, # NOTE: for simulation dataset
+    action_socket: zmq.SyncSocket | None, # NOTE: for simulation dataset
     events: dict,
     fps: int,
     teleop_action_processor: RobotProcessorPipeline[
@@ -209,10 +232,18 @@ def record_loop(
 
         # Get robot observation
         # And applies a pipeline to the raw robot observation, default is IdentityProcessor
-        if real_dataset is not None:
+        if robot is not None:
             real_obs = robot.get_observation()
+        if real_dataset is not None:
             real_obs_processed = robot_observation_processor(real_obs)
             real_observation_frame = build_dataset_frame(real_dataset.features, real_obs_processed, prefix=OBS_STR)
+        
+        # NOTE: ros2 topics sends around 30Hz, make the timeout slightly higher than this
+        if obs_socket is not None:
+            sim_obs = get_obs_from_socket(
+                obs_socket=obs_socket,
+                timeout_ms=40, 
+            )
         if sim_dataset is not None:
             sim_obs = get_obs_from_socket(
                 obs_socket=obs_socket,
@@ -225,8 +256,8 @@ def record_loop(
             sim_observation_frame = build_dataset_frame(sim_dataset.features, sim_obs_processed, prefix=OBS_STR)
 
         # Get action from teleop
+        act = teleop.get_action()
         if real_dataset is not None or sim_dataset is not None:
-            act = teleop.get_action()
             # TODO: use real_obs or sim_obs as options
             act_processed = teleop_action_processor((act, real_obs)) # TODO: why a obs is needed for act_processed from teleop?
             # Applies a pipeline to the action, default is IdentityProcessor
@@ -234,10 +265,10 @@ def record_loop(
             robot_action_to_send = robot_action_processor((act_processed, real_obs))
         
         # Send action to real robot
-        if real_dataset is not None:
+        if robot is not None:
             _sent_action = robot.send_action(robot_action_to_send)
         # Send action to simulated robot
-        if sim_dataset is not None:
+        if action_socket is not None:
             sim_action = joint_state_pos2rad(
                 pos_joint_state=robot_action_to_send,
                 calibration=SO101_NEW_CALIB,
@@ -277,16 +308,22 @@ def record(dataset_record_cfg: DatasetRecordConfig):
     robot_camera_config = dict(
         wrist=OpenCVCameraConfig(
             index_or_path=So101Camera.wrist_cam, 
-            width=640, 
-            height=480, 
-            fps=30,
+            width=dataset_record_cfg.cam_calib.width, 
+            height=dataset_record_cfg.cam_calib.height, 
+            fps=dataset_record_cfg.cam_calib.fps,
+            intrinsics=dataset_record_cfg.cam_calib.intrinsics,
+            dist_coeffs=dataset_record_cfg.cam_calib.dist_coeffs,
+            undistort=True,
             fourcc="MJPG",
         ),
         side=OpenCVCameraConfig(
             index_or_path=So101Camera.side_cam, 
-            width=640, 
-            height=480, 
-            fps=30,
+            width=dataset_record_cfg.cam_calib.width, 
+            height=dataset_record_cfg.cam_calib.height,
+            fps=dataset_record_cfg.cam_calib.fps,
+            intrinsics=dataset_record_cfg.cam_calib.intrinsics,
+            dist_coeffs=dataset_record_cfg.cam_calib.dist_coeffs,
+            undistort=True,
             fourcc="MJPG",
         ),
     )
@@ -323,15 +360,15 @@ def record(dataset_record_cfg: DatasetRecordConfig):
         args=(initial_pose, robot),
     )
 
-    if dataset_record_cfg.real_dataset:
+    if dataset_record_cfg.record_real:
         robot.connect()
         reset_real_thread.start()
-    if dataset_record_cfg.sim_dataset:
+    if dataset_record_cfg.record_sim:
         reset_sim_thread.start()
 
-    if dataset_record_cfg.real_dataset:
+    if dataset_record_cfg.record_real:
         reset_real_thread.join()
-    if dataset_record_cfg.sim_dataset:
+    if dataset_record_cfg.record_sim:
         reset_sim_thread.join()
 
     # processors
@@ -425,15 +462,15 @@ def record(dataset_record_cfg: DatasetRecordConfig):
                         log_say("Re-record episode")
                         events["rerecord_episode"] = False
                         events["exit_early"] = False
-                        if dataset_record_cfg.real_dataset:
+                        if dataset_record_cfg.record_real:
                             real_dataset.clear_episode_buffer()
-                        if dataset_record_cfg.sim_dataset:
+                        if dataset_record_cfg.record_sim:
                             sim_dataset.clear_episode_buffer()
                         continue
 
-                    if dataset_record_cfg.real_dataset:
+                    if dataset_record_cfg.record_real:
                         real_dataset.save_episode()
-                    if dataset_record_cfg.sim_dataset:
+                    if dataset_record_cfg.record_sim:
                         sim_dataset.save_episode()
                     recorded_episodes += 1
 
@@ -447,9 +484,9 @@ def record(dataset_record_cfg: DatasetRecordConfig):
             listener.stop()
 
         if dataset_record_cfg.push_to_hub:
-            if dataset_record_cfg.real_dataset:
+            if dataset_record_cfg.record_real:
                 real_dataset.push_to_hub(tags=dataset_record_cfg.tags, private=dataset_record_cfg.private)
-            if dataset_record_cfg.sim_dataset:
+            if dataset_record_cfg.record_sim:
                 sim_dataset.push_to_hub(tags=dataset_record_cfg.tags, private=dataset_record_cfg.private)
 
         log_say("Exiting")
@@ -470,6 +507,24 @@ def main():
 
     args = parse_args()
 
+    # load camera calibration parameters
+    with open (CAMERA_CALIB_JSON_PATH) as f:
+        camera_calib = json.load(f)
+    cam_calib = CameraCalibration(
+        width=camera_calib["image_width"],
+        height=camera_calib["image_height"],
+        fps=30,
+        intrinsics=np.array(
+            camera_calib["intrinsics"]["camera_matrix"], 
+            dtype=np.float32,
+        ).reshape(3,3),
+        dist_coeffs=np.array(
+            camera_calib["distortion"]["coefficients"], 
+            dtype=np.float32,
+        ).reshape(5, ),
+        dist_model=camera_calib["distortion"]["model"],
+    )
+
     record(
         dataset_record_cfg=DatasetRecordConfig(
             repo_id=f"{args.username}/{args.dataset_name}",
@@ -477,8 +532,9 @@ def main():
             fps=15, # TODO: Note why this should be lower than 30Hz
             num_episodes=args.num_episodes,
             push_to_hub=args.push_to_hub,
-            real_dataset=args.real,
-            sim_dataset=args.sim,
+            record_real=args.real,
+            record_sim=args.sim,
+            cam_calib=cam_calib,
         ),
     )
 
