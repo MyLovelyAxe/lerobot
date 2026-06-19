@@ -1,4 +1,5 @@
 import io
+import cv2
 import time
 import zmq
 import numpy as np
@@ -370,3 +371,61 @@ def get_rad_joint_state_from_socket(
         calibration=SO101_NEW_CALIB,
     )
     return joint_state
+
+
+def get_obs_from_socket(
+    obs_socket: zmq.SyncSocket,
+    timeout_ms: int = 10,
+) -> Dict[str, Any]:
+    """Extract the joint state in radian from socket and convert to calibrated normalized format.
+    
+    :param obs_socket: the socket to read the current joint states of simulated robot
+    """
+
+    poller = zmq.Poller()
+    poller.register(obs_socket, zmq.POLLIN)
+
+    socks = dict(poller.poll(timeout_ms))
+
+    if obs_socket not in socks:
+        return None
+
+    payload = obs_socket.recv()   # one npz blob
+    buf = io.BytesIO(payload)
+    data = np.load(buf)
+
+    # read joint states
+    # NOTE: joint_state_rad is a list of joint state values, needs to convert
+    joint_state_rad = data["joints"].astype(np.float32)
+    obs_dict = joint_state_rad2pos(
+        rad_joint_state=joint_state_rad,
+        calibration=SO101_NEW_CALIB,
+    )
+
+    # read wrist camera images
+    wrist_img_vec = data["wrist_img"]
+    wrist_encoded_flag = int(data.get("wrist_img_encoded", np.array([1]))[0])
+    # convert JPEG bytes to numpy image
+    if wrist_encoded_flag == 1:
+        wrist_buf = np.frombuffer(wrist_img_vec.tobytes(), dtype=np.uint8)
+        wrist_img = cv2.imdecode(wrist_buf, cv2.IMREAD_COLOR)
+    else:
+        wrist_img = wrist_img_vec.reshape((480, 640, 3))
+    # convert img into RGB
+    wrist_img = cv2.cvtColor(wrist_img, cv2.COLOR_BGR2RGB)
+    obs_dict["wrist"] = wrist_img
+
+    # read side camera images
+    side_img_vec = data["side_img"]
+    side_encoded_flag = int(data.get("side_img_encoded", np.array([1]))[0])
+    # convert JPEG bytes to numpy image
+    if side_encoded_flag == 1:
+        side_buf = np.frombuffer(side_img_vec.tobytes(), dtype=np.uint8)
+        side_img = cv2.imdecode(side_buf, cv2.IMREAD_COLOR)
+    else:
+        side_img = side_img_vec.reshape((480, 640, 3))
+    # convert img into RGB
+    side_img = cv2.cvtColor(side_img, cv2.COLOR_BGR2RGB)
+    obs_dict["side"] = side_img
+
+    return obs_dict

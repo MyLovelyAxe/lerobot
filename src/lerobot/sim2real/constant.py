@@ -4,7 +4,7 @@ from pathlib import Path
 ###### Paths ######
 
 LOG_FOLDER = Path(__file__).resolve().parent.parent.parent.parent / "isaacsim_sim2real/logs"
-
+DEFAULT_HUGGING_FACE_DATASET_ROOT = Path("/home/hardli/.cache/huggingface/lerobot")
 
 ###### Cameras ######
 
