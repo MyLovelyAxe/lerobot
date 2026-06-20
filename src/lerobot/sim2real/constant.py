@@ -183,7 +183,11 @@ SIMULATION_RANGE = {
         # update:
         'elbow_flex.pos'    : {'sim_min': -1.57,    'sim_max': 1.57 },
         'wrist_flex.pos'    : {'sim_min': -1.66,    'sim_max': 1.66 },
-        'wrist_roll.pos'    : {'sim_min': -2.74,    'sim_max': 2.84 },
+        # NOTE: due to slight mismatch among real leader, real follower, and simulated follower, update wrist_roll
+        # original: min = -157°, max = 162.72°
+        # 'wrist_roll.pos'    : {'sim_min': -2.74,    'sim_max': 2.84 },
+        # update: min = -167°, max = 157°
+        'wrist_roll.pos'    : {'sim_min': -2.91,    'sim_max': 2.74 },
         'gripper.pos'       : {'sim_min': -0.17,    'sim_max': 1.74 },
     },
 }
