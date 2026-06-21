@@ -123,6 +123,10 @@ def rad2pos(
     use -100 to 100 as "pos". Original script for SO100 follower, i.e. using_smolvla_example.py,
     use the default value of RobotConfig.use_degrees = False, so it use MotorNormMode.RANGE_M100_100,
     check norm_mode_body of class so100_foller.SO100Follower
+    
+    NOTE:
+    gripper's norm mode is MotorNormMode.RANGE_0_100, i.e. position (0, 100)
+    other motors' norm mode is MotorNormMode.RANGE_M100_100, i.e. position (-100, 100)
     """
 
     sim_min = SIMULATION_RANGE[calibration][joint_name]['sim_min']

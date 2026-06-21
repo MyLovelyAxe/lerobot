@@ -50,12 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sim",
         action="store_true",
-        default=True,
+        default=False,
         help="Send target pose to simulation. Without this flag, the script only logs joint positions.",
     )
     parser.add_argument(
         "--real",
-        default=True,
+        default=False,
         action="store_true",
         help="Send target pose to real robot. Without this flag, the script only logs joint positions.",
     )
@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--plot_record",
         type=bool,
-        default=True,
+        default=False,
         help="Whether save a plot of recorded trajectories.",
     )
     return parser.parse_args()

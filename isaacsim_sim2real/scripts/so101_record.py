@@ -234,6 +234,7 @@ def record_loop(
     events: dict,
     fps: int,
     record_fps: int | None,
+    # TODO: these processors don't really change the input, just ouput the identical inputs, remove them later
     teleop_action_processor: RobotProcessorPipeline[
         tuple[RobotAction, RobotObservation], RobotAction
     ],
@@ -502,7 +503,7 @@ def record(dataset_record_cfg: DatasetRecordConfig):
                     )
 
                     if not events["stop_recording"] and (
-                        (recorded_episodes < dataset_record_cfg.num_episodes - 1) or events["rerecord_episode"]
+                        (recorded_episodes < dataset_record_cfg.num_episodes) or events["rerecord_episode"]
                     ):
                         log_say("Reset the environment")
                         record_loop(

@@ -180,7 +180,7 @@ SIMULATION_RANGE = {
         # NOTE: original so101_new_calib usd in isaac sim has colloision at max and min pos for this joint
         # original:
         # 'elbow_flex.pos'    : {'sim_min': -1.69,    'sim_max': 1.69 },
-        # update:
+        # update: min = -90°, max = 90°
         'elbow_flex.pos'    : {'sim_min': -1.57,    'sim_max': 1.57 },
         'wrist_flex.pos'    : {'sim_min': -1.66,    'sim_max': 1.66 },
         # NOTE: due to slight mismatch among real leader, real follower, and simulated follower, update wrist_roll
